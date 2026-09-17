@@ -1,0 +1,9 @@
+[Unit]
+Description=Hold the buzzer pin low at boot
+After=local-fs.target
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/pinctrl set 18 op dl
+RemainAfterExit=yes
+[Install]
+WantedBy=multi-user.target

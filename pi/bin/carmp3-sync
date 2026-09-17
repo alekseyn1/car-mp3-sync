@@ -1,0 +1,113 @@
+#!/bin/bash
+# Sync the library from the NAS into the image the car is NOT playing from,
+# then flip the pointer so the next boot serves it. The car never sees a
+# volume being written to.
+set -uo pipefail
+
+# Site settings. Everything here can be overridden in /etc/carmp3.conf so the
+# script itself stays generic; see carmp3.conf.example.
+[ -r /etc/carmp3.conf ] && . /etc/carmp3.conf
+
+NAS_HOST="${NAS_HOST:-192.168.10.5}"
+NAS_SHARE="${NAS_SHARE:-Storage}"
+NAS_SUBPATH="${NAS_SUBPATH:-Music/Youtube/Output}"
+CRED="${CRED:-/etc/carmp3-nas.cred}"
+
+STATE=/data/state
+IMAGES=/data/images
+LOG=/data/log/carmp3-sync.log
+NASMNT=/mnt/nas
+SYNCMNT=/mnt/sync
+SRC="$NASMNT/$NAS_SUBPATH"
+# codepage 866 + utf8=1 is what makes Cyrillic filenames writable on FAT32
+VFAT_OPTS="${VFAT_OPTS:-uid=1000,gid=1000,utf8=1,codepage=866}"
+BEEP=/usr/local/sbin/carmp3-beep
+LOOP=""
+
+mkdir -p "$(dirname "$LOG")" "$STATE" "$NASMNT" "$SYNCMNT"
+# keep the log from growing without bound on a read-only-root appliance
+[ -f "$LOG" ] && [ "$(stat -c%s "$LOG")" -gt 1048576 ] && tail -c 262144 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"
+log() { echo "$(date '+%F %T') $*" | tee -a "$LOG"; }
+beep() { [ -x "$BEEP" ] && "$BEEP" "$1" 2>/dev/null; }
+
+exec 9>/run/carmp3-sync.lock
+flock -n 9 || { log "another sync is already running, skipping"; exit 0; }
+
+cleanup() {
+  mountpoint -q "$SYNCMNT" && umount "$SYNCMNT"
+  [ -n "$LOOP" ] && losetup -d "$LOOP" 2>/dev/null
+  mountpoint -q "$NASMNT" && umount "$NASMNT"
+}
+trap cleanup EXIT
+
+ACTIVE=$(cat "$STATE/active" 2>/dev/null)
+case "$ACTIVE" in A) TARGET=B ;; B) TARGET=A ;; *) ACTIVE=A; TARGET=B ;; esac
+IMG="$IMAGES/$TARGET.img"
+log "=== sync start: car is playing $ACTIVE, writing into $TARGET ==="
+
+[ -f "$IMG" ] || { log "target image missing: $IMG"; beep failed; exit 1; }
+
+if ! ping -c1 -W2 "$NAS_HOST" >/dev/null 2>&1; then
+  log "NAS not reachable - not at home, nothing to do"
+  beep nowifi
+  exit 0
+fi
+
+if ! mount -t cifs "//$NAS_HOST/$NAS_SHARE" "$NASMNT" \
+      -o "credentials=$CRED,ro,vers=3.0,uid=1000,gid=1000,iocharset=utf8"; then
+  log "NAS mount failed"; beep failed; exit 1
+fi
+[ -d "$SRC" ] || { log "source dir missing: $SRC"; beep failed; exit 1; }
+
+LOOP=$(losetup -fP --show "$IMG") || { log "losetup failed"; beep failed; exit 1; }
+mount -o "$VFAT_OPTS" "${LOOP}p1" "$SYNCMNT" || { log "image mount failed"; beep failed; exit 1; }
+
+# --max-delete is the second line of defence behind youtube.py's own gate:
+# a bad run on the NAS must never be able to empty the car.
+OUT=$(rsync -rt --modify-window=2 --delete-after --max-delete=20 \
+        --itemize-changes "$SRC/" "$SYNCMNT/" 2>&1)
+RC=$?
+CHANGES=$(printf '%s\n' "$OUT" | grep -cE '^[<>ch*]')
+log "rsync rc=$RC changes=$CHANGES"
+[ "$CHANGES" -gt 0 ] && printf '%s\n' "$OUT" | grep -E '^[<>ch*]' | head -40 >> "$LOG"
+
+if [ $RC -ne 0 ]; then
+  log "rsync failed (rc=$RC) - NOT flipping, car keeps playing $ACTIVE"
+  printf '%s\n' "$OUT" | tail -5 >> "$LOG"
+  beep failed; exit 1
+fi
+
+FILES=$(find "$SYNCMNT" -type f | wc -l)
+log "image $TARGET now holds $FILES files"
+ls -la "$SYNCMNT" | tail -n +2 >> "$LOG"
+
+umount "$SYNCMNT"
+
+# Car head units play files in the order the FAT directory entries were
+# written, not filename order, and rsync writes in source-walk order which is
+# effectively random. Two passes: everything by natural name, then the root
+# alone by mtime so the playlist folders keep the date order youtube.py sets
+# and "Removed tracks" stays last.
+if command -v fatsort >/dev/null; then
+  if fatsort -n -D / "${LOOP}p1" >/dev/null 2>&1 && fatsort -t -d / "${LOOP}p1" >/dev/null 2>&1; then
+    log "fatsort: directory entries sorted"
+  else
+    log "fatsort FAILED - image is valid but play order will be wrong"
+  fi
+else
+  log "fatsort not installed - play order will be wrong"
+fi
+
+# do not hand the car an image that will not mount
+if command -v fsck.vfat >/dev/null && ! fsck.vfat -n "${LOOP}p1" >/dev/null 2>&1; then
+  log "image $TARGET failed fsck - NOT flipping"
+  beep failed; exit 1
+fi
+losetup -d "$LOOP"; LOOP=""
+
+echo "$TARGET" > "$STATE/active"
+sync
+log "flipped: next boot serves $TARGET"
+
+if [ "$CHANGES" -gt 0 ]; then beep synced; else beep current; fi
+log "=== sync done ==="

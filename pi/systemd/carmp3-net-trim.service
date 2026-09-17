@@ -1,0 +1,12 @@
+[Unit]
+Description=Drop Ethernet once WiFi is carrying an address
+After=network-online.target carmp3-sync.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/carmp3-net-trim
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

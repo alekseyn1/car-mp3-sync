@@ -1,0 +1,18 @@
+# /etc/carmp3.conf - site settings for carmp3-sync.
+# Every value here has a default in the script; set only what differs.
+
+# NAS holding the library
+NAS_HOST=192.168.10.5
+NAS_SHARE=Storage
+NAS_SUBPATH=Music/Youtube/Output
+
+# SMB credentials file, mode 600 root:root, containing:
+#   username=carmp3
+#   password=...
+# Use a dedicated read-only account, not a personal one. This device lives in
+# a car and can be stolen.
+CRED=/etc/carmp3-nas.cred
+
+# Mount options for the FAT32 image. utf8=1 is not optional if any filename is
+# non-ASCII: the default iocharset=ascii makes them fail with EINVAL.
+VFAT_OPTS=uid=1000,gid=1000,utf8=1,codepage=866

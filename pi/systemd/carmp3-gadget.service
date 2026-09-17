@@ -1,0 +1,15 @@
+[Unit]
+Description=Present the car music image as a USB mass storage gadget
+DefaultDependencies=no
+RequiresMountsFor=/data
+After=local-fs.target
+Before=sysinit.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/carmp3-gadget-active
+ExecStop=/usr/local/sbin/carmp3-gadget --stop
+RemainAfterExit=yes
+
+[Install]
+WantedBy=sysinit.target

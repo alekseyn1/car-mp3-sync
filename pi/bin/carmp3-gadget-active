@@ -1,0 +1,13 @@
+#!/bin/sh
+# Bind whichever image /data/state/active names (A or B).
+STATE=/data/state/active
+i=0
+while [ ! -f "$STATE" ] && [ $i -lt 30 ]; do sleep 0.5; i=$((i+1)); done
+WHICH=$(cat "$STATE" 2>/dev/null)
+case "$WHICH" in A|B) ;; *) echo "bad or missing state '$WHICH', defaulting to A"; WHICH=A ;; esac
+IMG="/data/images/$WHICH.img"
+i=0
+while [ ! -f "$IMG" ] && [ $i -lt 30 ]; do sleep 0.5; i=$((i+1)); done
+[ -f "$IMG" ] || { echo "image never appeared: $IMG"; exit 1; }
+echo "binding $IMG"
+exec /usr/local/sbin/carmp3-gadget "$IMG"

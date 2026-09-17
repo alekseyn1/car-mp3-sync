@@ -1,0 +1,17 @@
+#!/bin/sh
+# The car has no network cable, and the Pi 4's Ethernet PHY draws current even
+# with nothing plugged in. Drop it once WiFi is actually carrying an address.
+#
+# Deliberately conditional: if WiFi has no address - which has happened once
+# already, when an unclean power cut deleted the saved profile - leave eth0 up
+# so there is still a way in without a keyboard.
+for i in $(seq 1 30); do
+  ip -4 addr show wlan0 2>/dev/null | grep -q 'inet ' && break
+  sleep 2
+done
+if ip -4 addr show wlan0 2>/dev/null | grep -q 'inet '; then
+  ip link set eth0 down
+  echo "eth0 down (wlan0 has $(ip -4 -br addr show wlan0 | awk '{print $3}'))"
+else
+  echo "wlan0 has no address - leaving eth0 up for recovery"
+fi

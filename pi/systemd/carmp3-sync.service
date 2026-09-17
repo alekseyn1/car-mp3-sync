@@ -1,0 +1,13 @@
+[Unit]
+Description=Sync the car music library from the NAS into the inactive image
+After=network-online.target
+Wants=network-online.target
+RequiresMountsFor=/data
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/carmp3-sync
+TimeoutStartSec=900
+
+[Install]
+WantedBy=multi-user.target

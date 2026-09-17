@@ -1,0 +1,54 @@
+#!/bin/sh
+PREREQ=""
+prereqs() { echo "$PREREQ"; }
+case $1 in prereqs) prereqs; exit 0;; esac
+
+log() { echo "carmp3: $(echo "$*" | tr '\n' ' ')" > /dev/kmsg 2>/dev/null; }
+
+TARGET=16777216
+DISK=/dev/mmcblk0
+PART=/dev/mmcblk0p2
+
+log "premount script running"
+[ -b "$PART" ] || { log "no $PART"; exit 0; }
+
+CUR=$(cat /sys/block/mmcblk0/mmcblk0p2/size 2>/dev/null)
+[ -n "$CUR" ] || CUR=$(/sbin/blockdev --getsz "$PART" 2>/dev/null)
+log "current=$CUR target=$TARGET"
+[ -n "$CUR" ] || exit 0
+[ "$CUR" -le "$TARGET" ] && { log "already done"; exit 0; }
+
+# A Pi has no RTC, so the clock in here is behind the filesystem's last mount
+# time and anything e2fsck stamps looks stale. The resize2fs -f below is what
+# actually makes the resize possible; this only avoids writing 1970 timestamps.
+BUILT=$(stat -c %Y /init 2>/dev/null)
+[ -n "$BUILT" ] && [ "$BUILT" -gt 0 ] && date -s "@$BUILT" >/dev/null 2>&1
+log "clock set to $(date 2>/dev/null)"
+
+i=1
+while [ $i -le 4 ]; do
+  /sbin/e2fsck -fy "$PART" > /dev/null 2>&1
+  RC=$?
+  log "e2fsck pass $i rc=$RC"
+  [ "$RC" -eq 0 ] && break
+  [ "$RC" -gt 2 ] && { log "e2fsck unrecoverable rc=$RC"; exit 0; }
+  i=$((i+1))
+done
+[ "$RC" -eq 0 ] || { log "never came back clean"; exit 0; }
+
+# -f skips the last-check-vs-last-mount comparison, which is meaningless here.
+# Cleanliness is already established by the e2fsck rc=0 above.
+OUT=$(/sbin/resize2fs -f "$PART" 8G 2>&1); RC=$?
+log "resize2fs rc=$RC : $OUT"
+[ "$RC" -ne 0 ] && { log "resize2fs failed - partition table untouched"; exit 0; }
+
+OUT=$(echo ",$TARGET" | /sbin/sfdisk --no-reread --force -N 2 "$DISK" 2>&1); RC=$?
+log "sfdisk rc=$RC : $OUT"
+[ "$RC" -ne 0 ] && { log "sfdisk failed"; exit 0; }
+
+sync
+log "SUCCESS - rebooting"
+sleep 3
+echo b > /proc/sysrq-trigger
+sleep 15
+exit 0

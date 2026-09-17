@@ -1,0 +1,31 @@
+#!/bin/sh
+# carmp3-gadget <path-to-image>   |   carmp3-gadget --stop
+G=/sys/kernel/config/usb_gadget/carmp3
+if [ "$1" = "--stop" ]; then
+  [ -d $G ] || exit 0
+  echo "" > $G/UDC 2>/dev/null
+  rm -f $G/configs/c.1/mass_storage.0
+  rmdir $G/configs/c.1/strings/0x409 $G/configs/c.1 2>/dev/null
+  rmdir $G/functions/mass_storage.0 $G/strings/0x409 $G 2>/dev/null
+  exit 0
+fi
+[ -f "$1" ] || { echo "usage: $0 <image>"; exit 1; }
+modprobe libcomposite
+mkdir -p $G && cd $G
+echo 0x1d6b > idVendor
+echo 0x0104 > idProduct
+echo 0x0200 > bcdUSB
+mkdir -p strings/0x409
+echo "car-mp3-01" > strings/0x409/serialnumber
+echo "DIY"        > strings/0x409/manufacturer
+echo "Car Music"  > strings/0x409/product
+mkdir -p configs/c.1/strings/0x409
+echo "Mass Storage" > configs/c.1/strings/0x409/configuration
+echo 250 > configs/c.1/MaxPower
+mkdir -p functions/mass_storage.0
+echo 1    > functions/mass_storage.0/lun.0/removable
+echo 0    > functions/mass_storage.0/lun.0/ro
+echo 0    > functions/mass_storage.0/lun.0/cdrom
+echo "$1" > functions/mass_storage.0/lun.0/file
+ln -sf functions/mass_storage.0 configs/c.1/
+ls /sys/class/udc > UDC

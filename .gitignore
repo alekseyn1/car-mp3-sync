@@ -1,0 +1,8 @@
+# never commit real credentials
+carmp3.conf
+carmp3-nas.cred
+*.password
+*password*.txt
+
+# images and state
+*.img

@@ -1,0 +1,19 @@
+#!/bin/sh
+# carmp3-beep {synced|current|nowifi|failed|test|off}
+# GPIO18 (header pin 12) -> 1k -> base of an NPN switching the buzzer's low side.
+PIN=18
+on()  { pinctrl set $PIN op dh; }
+off() { pinctrl set $PIN op dl; }
+beep() { on; sleep "$1"; off; sleep "${2:-0.15}"; }
+
+off                       # make sure we start quiet and the pin is a driven output
+case "$1" in
+  synced)  beep 0.12 ;;                        # 1 short  - synced, files changed
+  current) beep 0.12; beep 0.12 ;;             # 2 short  - already up to date
+  nowifi)  beep 0.12; beep 0.12; beep 0.12 ;;  # 3 short  - not at home
+  failed)  beep 0.80 ;;                        # 1 long   - sync failed
+  test)    beep 0.30 ;;
+  off)     ;;
+  *) echo "usage: $0 {synced|current|nowifi|failed|test|off}" >&2; exit 1 ;;
+esac
+off
