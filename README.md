@@ -42,14 +42,19 @@ is that the car keeps playing yesterday's copy.
 
 ## Status
 
-Built and running. Measured on a Pi 4 from cold power:
+Built, installed in the car, and working. Measured on a Pi 4 from cold power:
 
 | | |
 |---|---|
-| Drive present to the host | **7.5 s** |
+| Drive present to the host | **7.1 s** |
 | Sync complete, pointer flipped | **21 s** |
 | Library | 200 files, 2.8 GB |
 | Idle temperature after tuning | 49 °C |
+| In the car | tracks play in order, Cyrillic renders correctly |
+
+Root is read-only (`overlayroot=tmpfs`), so the unclean power cut at every
+ignition-off cannot corrupt it. `/data` holds the images, state and log and is
+the only writable filesystem.
 
 ## Hardware
 
@@ -102,9 +107,10 @@ See [docs/build.md](docs/build.md) for the full walkthrough. In brief:
 The parts that cost real time are written up in
 [docs/findings.md](docs/findings.md). The short version:
 
-- Car stereos play files in **FAT directory-entry order**, not filename order.
-  You need `fatsort`, or your carefully numbered tracks play at random. Some
-  units sort on the ID3 `TRCK` frame instead, so write that too.
+- Car stereos ignore your `001 -` filename prefixes. Two different mechanisms
+  cause it: some sort by **FAT directory-entry order** (fixed with `fatsort`),
+  others by the **ID3 `TRCK` frame** (fixed by tagging). The unit this was built
+  against turned out to use the tag. Do both — `fatsort` is free.
 - `overlayroot` overlays **every filesystem in `/etc/fstab`**, not just root, so
   a data partition listed there silently becomes RAM.
 - FAT32 mounts default to `iocharset=ascii`, and any non-ASCII filename fails to

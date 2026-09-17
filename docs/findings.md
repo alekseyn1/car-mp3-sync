@@ -3,11 +3,15 @@
 Things that cost real time, in the order they bit. Every one of these is
 measured on hardware, not reasoned from documentation.
 
-## Car stereos ignore filenames
+## Car stereos ignore filenames - and there are two reasons why
 
-Tracks were numbered `001 -`, `002 -` and played in a scrambled order anyway.
-Head units play files in the order the **FAT directory entries were written**,
-and rsync writes in source-walk order, which on ext4 is hash order:
+Tracks were numbered `001 -`, `002 -` and played scrambled anyway. There are two
+independent mechanisms behind this, and conflating them cost a round trip.
+
+### Mechanism 1: FAT directory-entry order
+
+Many head units play files in the order the **FAT directory entries were
+written**, and rsync writes in source-walk order, which on ext4 is hash order:
 
 ```
 /Workout as written:  002, 001, 007, 003, 005, 004, 006, 008, 011, 009, 010, 013, 012
@@ -22,9 +26,29 @@ fatsort -t -d / "${LOOP}p1"    # root ONLY, by mtime
 ```
 
 The second pass is what keeps *folders* in a chosen order rather than
-alphabetical — stamp the directories on the source and the root sort follows.
+alphabetical - stamp the directories on the source and the root sort follows.
 `fatsort -l -d <dir> <device>` prints the physical order without changing it,
 which is the only way to actually check this. The filesystem must be unmounted.
+
+### Mechanism 2: the ID3 TRCK frame
+
+**This is what actually fixed the unit in this build.** Entry order was already
+correct after `fatsort`, and playback was still scrambled. The files carried a
+title tag but **no track number at all**, so the unit was sorting 200 files that
+each claimed to have none.
+
+```python
+audiofile.tag.track_num = (position, total)
+```
+
+After re-tagging and re-syncing, tracks played in order. Shuffle was off.
+
+### What to take from this
+
+Do both. `fatsort` is free and plenty of units really do use entry order; the ID3
+tag is what mattered here. And test one change at a time - both were applied
+close together, and only the user confirming shuffle was off made it clear which
+had done the work.
 
 ## FAT32 and non-ASCII filenames
 
