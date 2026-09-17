@@ -229,7 +229,13 @@ def fetch_playlist(url):
     return (data.get('title') or 'Unknown playlist', entries, unavailable)
 
 
-def set_title_tag(path, title):
+def set_title_tag(path, title, position=None, total=None):
+    """Write the title, and the track number the car stereo sorts on.
+
+    The numeric prefix in the filename is not enough: head units that sort by
+    ID3 rather than by FAT directory order see 200 files all claiming no track
+    number, and play them in whatever order they were indexed.
+    """
     if eyed3 is None:
         return
     try:
@@ -239,6 +245,8 @@ def set_title_tag(path, title):
         if audiofile.tag is None:
             audiofile.initTag()
         audiofile.tag.title = title
+        if position is not None:
+            audiofile.tag.track_num = (position, total)
         audiofile.tag.save()
     except Exception as error:
         print("     (could not set title tag: %s)" % error)
@@ -449,7 +457,7 @@ def process_playlist(url, folder_stamp):
         dest = os.path.join(save_dir, filename)
         if current:
             if current != filename and not DRY_RUN:
-                set_title_tag(dest, tag_title)
+                set_title_tag(dest, tag_title, count, len(plan))
             continue
 
         # A track that was archived earlier and has since been put back in the
@@ -461,7 +469,7 @@ def process_playlist(url, folder_stamp):
             if not DRY_RUN:
                 try:
                     shutil.move(parked, dest)
-                    set_title_tag(dest, tag_title)
+                    set_title_tag(dest, tag_title, count, len(plan))
                     new_index[vid] = filename
                 except (OSError, IOError) as error:
                     print("     (could not restore: %s)" % error)
@@ -475,7 +483,7 @@ def process_playlist(url, folder_stamp):
             downloaded += 1
             continue
         if download_track(vid, dest):
-            set_title_tag(dest, tag_title)
+            set_title_tag(dest, tag_title, count, len(plan))
             new_index[vid] = filename
             downloaded += 1
         else:

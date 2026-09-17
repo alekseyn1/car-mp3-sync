@@ -95,7 +95,7 @@ See [docs/build.md](docs/build.md) for the full walkthrough. In brief:
 4. Create the A/B images, copy in `pi/bin/*` and `pi/systemd/*`, enable the units.
 5. Create a **dedicated read-only NAS account** and put its credentials in
    `/etc/carmp3-nas.cred`.
-6. Make root read-only, last.
+6. Make root read-only, last — and keep `/data` out of fstab when you do.
 
 ## The findings
 
@@ -103,7 +103,10 @@ The parts that cost real time are written up in
 [docs/findings.md](docs/findings.md). The short version:
 
 - Car stereos play files in **FAT directory-entry order**, not filename order.
-  You need `fatsort`, or your carefully numbered tracks play at random.
+  You need `fatsort`, or your carefully numbered tracks play at random. Some
+  units sort on the ID3 `TRCK` frame instead, so write that too.
+- `overlayroot` overlays **every filesystem in `/etc/fstab`**, not just root, so
+  a data partition listed there silently becomes RAM.
 - FAT32 mounts default to `iocharset=ascii`, and any non-ASCII filename fails to
   copy with `EINVAL`. `utf8=1` is mandatory if your library is not all English.
 - `resize2fs` refuses to shrink a *clean* filesystem from initramfs, because a

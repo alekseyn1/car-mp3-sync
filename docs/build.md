@@ -52,13 +52,18 @@ space and mount it:
 ```bash
 sudo parted -s /dev/mmcblk0 unit s mkpart primary ext4 <start>s <end>s
 sudo mkfs.ext4 -F -L cardata /dev/mmcblk0p3
-echo 'PARTUUID=<id>-03  /data  ext4  defaults,noatime,nofail  0  2' | sudo tee -a /etc/fstab
-sudo mkdir -p /data && sudo mount /data
+sudo cp pi/systemd/data.mount /etc/systemd/system/data.mount   # edit the PARTUUID
+sudo systemctl daemon-reload && sudo systemctl enable --now data.mount
 sudo mkdir -p /data/images /data/state /data/log
 ```
 
-Take `<start>`, `<end>` and `<id>` from `sudo sfdisk -F /dev/mmcblk0` and
-`sudo sfdisk -d /dev/mmcblk0`.
+Take `<start>`, `<end>` and the PARTUUID from `sudo sfdisk -F /dev/mmcblk0`,
+`sudo sfdisk -d /dev/mmcblk0` and `sudo blkid /dev/mmcblk0p3`.
+
+**Do not put `/data` in `/etc/fstab`.** `overlayroot` — enabled in step 6 —
+scans fstab and would overlay this partition into RAM, silently discarding every
+sync. A systemd mount unit is invisible to it. See
+[findings.md](findings.md).
 
 ## 3. Create the images
 

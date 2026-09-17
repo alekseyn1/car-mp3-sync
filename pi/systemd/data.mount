@@ -1,0 +1,18 @@
+[Unit]
+Description=Car MP3 data partition (images, state, log)
+# Deliberately NOT in /etc/fstab: overlayroot scans fstab and would overlay this
+# partition into tmpfs, silently discarding every sync on reboot.
+#
+# No After= here. Mount units get After=local-fs-pre.target and
+# Before=local-fs.target from default dependencies; adding After=local-fs.target
+# alongside WantedBy=local-fs.target makes an ordering cycle and systemd
+# resolves it by dropping the mount entirely.
+
+[Mount]
+What=/dev/disk/by-partuuid/edcd3ba0-03
+Where=/data
+Type=ext4
+Options=noatime
+
+[Install]
+WantedBy=local-fs.target

@@ -145,3 +145,50 @@ It is a legacy-graphics-stack command and is ignored when `dtoverlay=vc4-kms-v3d
 is active. Blanking HDMI needs `video=HDMI-A-1:d` on the kernel command line —
 but consider leaving HDMI alone. With no monitor attached the saving is
 negligible, and the console is the recovery path when the unit drops off WiFi.
+
+## overlayroot overlays everything in fstab, not just root
+
+Enabling the overlay filesystem makes root copy-on-write to RAM, which is the
+whole point. But `overlayroot` scans `/etc/fstab` and does the same to **every**
+filesystem listed there. A separate data partition in fstab becomes:
+
+```
+/dev/mmcblk0p3 on /media/root-ro/data   ext4  (ro,noatime)   <- real, read-only
+/media/root-ro/data on /data            overlay (rw, upperdir=tmpfs)
+```
+
+Everything written to it now lives in RAM and is discarded at reboot. In this
+build a sync started straight away and began pushing 2.8 GB into a 1.9 GB tmpfs;
+shared memory reached 1.5 GiB before it was stopped.
+
+Keep the data partition **out of fstab** and mount it with a systemd unit
+instead, which overlayroot does not touch.
+
+## A mount unit must not be ordered after the target that wants it
+
+```ini
+[Unit]
+After=local-fs.target        # <- wrong, with WantedBy=local-fs.target below
+[Install]
+WantedBy=local-fs.target
+```
+
+That is a cycle, and systemd breaks it by dropping the mount:
+
+```
+data.mount: Found ordering cycle on local-fs.target/start
+data.mount: Job data.mount/start deleted to break ordering cycle
+```
+
+Mount units already get `After=local-fs-pre.target` and `Before=local-fs.target`
+from default dependencies, so the `After=` line is not merely redundant. The
+symptom is a unit that never mounts at boot but mounts perfectly when started by
+hand.
+
+## Log timestamps early in boot are wrong
+
+A Pi has no RTC. It restores an approximate clock at boot, anything running in
+the first seconds logs against it, and NTP corrects a few seconds later. Log
+lines can therefore be stamped minutes *earlier* than they happened and appear
+to predate entries already in the file. Compare `uptime -s` with `date` before
+concluding a log is stale — it cost a round of confusion here.
