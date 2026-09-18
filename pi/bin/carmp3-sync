@@ -18,6 +18,11 @@ NAS_HOST_VPN="${NAS_HOST_VPN:-}"
 # one that never sees it - a car in another country - wants "vpn lan", so it
 # does not burn ~20s on LAN retries that can never succeed.
 NAS_ROUTE_ORDER="${NAS_ROUTE_ORDER:-lan vpn}"
+# Pin both images to one FAT32 volume serial so the head unit treats them as a
+# single stick rather than a new one every boot - some units re-run their
+# first-time setup, or re-prompt to store voice data, on each unfamiliar volume.
+# Set empty to leave whatever mkfs.vfat generated.
+VOLUME_ID="${VOLUME_ID:-CA4D-0301}"
 NAS_SHARE="${NAS_SHARE:-Storage}"
 NAS_SUBPATH="${NAS_SUBPATH:-Music/Youtube/Output}"
 CRED="${CRED:-/etc/carmp3-nas.cred}"
@@ -128,6 +133,11 @@ if command -v fsck.vfat >/dev/null; then
     *"Dirty bit"*|*"Auto-correcting"*|*"Reclaimed"*|*"Truncating"*)
       log "repaired $TARGET before writing: $(printf '%s' "$FSCKOUT" | grep -cE 'Auto-correcting|Truncating|Reclaimed|Dirty') issue(s)" ;;
   esac
+fi
+
+if [ -n "$VOLUME_ID" ] && [ -x /usr/local/sbin/carmp3-volid ]; then
+  VOUT=$(/usr/local/sbin/carmp3-volid "${LOOP}p1" "$VOLUME_ID" 2>&1)
+  case "$VOUT" in *'->'*) log "volume id $TARGET: $VOUT" ;; esac
 fi
 
 mount -o "$VFAT_OPTS,discard" "${LOOP}p1" "$SYNCMNT" || { log "image mount failed"; beep failed; exit 1; }

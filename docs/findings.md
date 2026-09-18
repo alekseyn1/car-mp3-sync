@@ -349,3 +349,15 @@ root, and rsync then tries to delete them and trips `--max-delete`, failing the
 sync for a different reason. Delete that debris explicitly so the delete guard
 stays meaningful for actual content.
 
+## A changing volume serial makes the car think it is a new stick
+
+`mkfs.vfat` derives the volume serial from the clock, so the two ping-pong
+images get different ones. The head unit then sees an unfamiliar volume on every
+single boot, because the images alternate - re-running first-time setup, or
+re-prompting to store voice-recognition data, each trip.
+
+Pin both images to one serial. It lives at offset `0x43` of the FAT32 boot
+sector, little-endian, mirrored in the backup boot sector at sector 6, and the
+filesystem must be unmounted to change it. `pi/bin/carmp3-volid` does this and
+the sync applies it on every run, so a rebuilt image does not revert.
+

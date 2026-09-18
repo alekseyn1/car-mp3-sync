@@ -28,3 +28,9 @@ CRED=/etc/carmp3-nas.cred
 # Mount options for the FAT32 image. utf8=1 is not optional if any filename is
 # non-ASCII: the default iocharset=ascii makes them fail with EINVAL.
 VFAT_OPTS=uid=1000,gid=1000,utf8=1,codepage=866
+
+# FAT32 volume serial, shared by both ping-pong images so the head unit sees one
+# stick instead of a new one every boot. Some units re-run first-time setup, or
+# ask to store voice-recognition data, for each unfamiliar volume.
+# Leave empty to keep whatever mkfs.vfat generated.
+VOLUME_ID="CA4D-0301"
