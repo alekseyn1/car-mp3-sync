@@ -7,6 +7,14 @@
 # sees the home LAN. Leave NAS_HOST_VPN empty to disable the fallback.
 NAS_HOST_LAN=192.168.10.5
 NAS_HOST_VPN=
+
+# Order the routes are tried in. Use "vpn lan" for a unit that never sees the
+# home LAN, so it does not waste ~20s per start on retries that cannot succeed.
+# NOTE the quotes: this file is sourced by the shell, and an unquoted value
+# with a space in it sets the variable only for a command named by the second
+# word, which silently leaves it unset.
+NAS_ROUTE_ORDER="lan vpn"
+
 NAS_SHARE=Storage
 NAS_SUBPATH=Music/Youtube/Output
 

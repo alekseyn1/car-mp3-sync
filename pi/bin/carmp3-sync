@@ -14,6 +14,10 @@ set -uo pipefail
 # country) it is the only route.
 NAS_HOST_LAN="${NAS_HOST_LAN:-${NAS_HOST:-192.168.10.5}}"
 NAS_HOST_VPN="${NAS_HOST_VPN:-}"
+# Which route to try first. A unit that lives on the home LAN wants "lan vpn";
+# one that never sees it - a car in another country - wants "vpn lan", so it
+# does not burn ~20s on LAN retries that can never succeed.
+NAS_ROUTE_ORDER="${NAS_ROUTE_ORDER:-lan vpn}"
 NAS_SHARE="${NAS_SHARE:-Storage}"
 NAS_SUBPATH="${NAS_SUBPATH:-Music/Youtube/Output}"
 CRED="${CRED:-/etc/carmp3-nas.cred}"
@@ -54,30 +58,24 @@ log "=== sync start: car is playing $ACTIVE, writing into $TARGET ==="
 
 # Pick a route. Tailscale is not up yet at the point in boot where this runs,
 # so give it a little time before concluding we are offline.
-pick_nas() {
-  # Wait for the interface to actually carry a route. This runs early enough in
-  # boot that WiFi is often still associating, and a single failed LAN ping here
-  # sends a car that is sitting at home out over the tailnet instead.
+try_lan() {
+  [ -n "$NAS_HOST_LAN" ] || return 1
   i=0
-  while [ $i -lt 20 ] && ! ip -4 route show default 2>/dev/null | grep -q .; do
-    sleep 1; i=$((i+1))
+  while [ $i -lt 5 ]; do
+    if ping -c1 -W2 "$NAS_HOST_LAN" >/dev/null 2>&1; then
+      ROUTE=lan; NAS_HOST="$NAS_HOST_LAN"; return 0
+    fi
+    sleep 2; i=$((i+1))
   done
+  return 1
+}
 
-  # LAN first, with a few attempts - it is faster and avoids the relay.
-  if [ -n "$NAS_HOST_LAN" ]; then
-    i=0
-    while [ $i -lt 5 ]; do
-      if ping -c1 -W2 "$NAS_HOST_LAN" >/dev/null 2>&1; then
-        ROUTE=lan; NAS_HOST="$NAS_HOST_LAN"; return 0
-      fi
-      sleep 2; i=$((i+1))
-    done
-  fi
+try_vpn() {
   [ -n "$NAS_HOST_VPN" ] || return 1
   command -v tailscale >/dev/null 2>&1 || return 1
   i=0
   while [ $i -lt 30 ]; do
-    if tailscale status >/dev/null 2>&1        && ping -c1 -W3 "$NAS_HOST_VPN" >/dev/null 2>&1; then
+    if tailscale status >/dev/null 2>&1 && ping -c1 -W3 "$NAS_HOST_VPN" >/dev/null 2>&1; then
       ROUTE=vpn; NAS_HOST="$NAS_HOST_VPN"
       [ $i -gt 0 ] && log "waited $((i*2))s for the tailnet"
       return 0
@@ -87,9 +85,26 @@ pick_nas() {
   return 1
 }
 
+pick_nas() {
+  # Wait for the interface to actually carry a route. This runs early enough in
+  # boot that WiFi is often still associating, and judging the network from a
+  # single failed ping here sends a car sitting at home out over the tailnet.
+  i=0
+  while [ $i -lt 20 ] && ! ip -4 route show default 2>/dev/null | grep -q .; do
+    sleep 1; i=$((i+1))
+  done
+  for r in $NAS_ROUTE_ORDER; do
+    case "$r" in
+      lan) try_lan && return 0 ;;
+      vpn) try_vpn && return 0 ;;
+    esac
+  done
+  return 1
+}
+
 ROUTE=""; NAS_HOST=""
 if ! pick_nas; then
-  log "NAS unreachable on LAN ($NAS_HOST_LAN) or tailnet (${NAS_HOST_VPN:-unset}) - nothing to do"
+  log "NAS unreachable (tried: $NAS_ROUTE_ORDER; lan=$NAS_HOST_LAN vpn=${NAS_HOST_VPN:-unset}) - nothing to do"
   beep nowifi
   exit 0
 fi

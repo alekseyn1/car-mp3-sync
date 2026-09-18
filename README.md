@@ -141,6 +141,10 @@ the LAN first and falls back to the tailnet, so the same build works whether the
 car is in the driveway or on another continent. No ports are exposed, and a
 stolen unit is revoked with one click.
 
+`NAS_ROUTE_ORDER` decides which route is tried first, per unit — `"lan vpn"` for
+a car that lives at home, `"vpn lan"` for one that never sees the LAN, so it does
+not waste ~20 s per start on retries that cannot succeed.
+
 If root is read-only, Tailscale's node state has to be moved off it or the unit
 forgets its identity on every reboot. See [docs/build.md](docs/build.md).
 

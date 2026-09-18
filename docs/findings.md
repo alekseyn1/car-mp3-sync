@@ -254,3 +254,35 @@ associating yet.
 Wait for a default route to exist, then give the LAN several attempts before
 falling back. The symptom is subtle - everything works, just over the slow and
 more expensive path.
+
+## A shell-sourced config needs its values quoted
+
+`NAS_ROUTE_ORDER=vpn lan` in a file that gets `. sourced` does not set a
+two-word variable. It sets `NAS_ROUTE_ORDER=vpn` *for the duration of a command
+called `lan`* — which does not exist. The variable ends up unset and the code
+falls back to its default, while everything appears to work.
+
+```
+carmp3.conf: line 7: lan: command not found
+```
+
+That message was in the output and easy to read past. Quote anything containing
+a space.
+
+## overlayfs does not see edits to its lower layer
+
+With read-only root, the way to make a persistent change is to write to the real
+root under `/media/root-ro/`. That works — but **the running system will not
+notice**. overlayfs explicitly does not support modifying the lowerdir while
+mounted, so the overlay keeps serving a cached inode and the edit looks like it
+silently failed:
+
+```
+overlay shows : NAS_ROUTE_ORDER=vpn lan       <- stale
+disk has      : NAS_ROUTE_ORDER="vpn lan"     <- the edit did land
+upper copy    : none
+```
+
+Verify by reading the file under `/media/root-ro/`, not at its normal path, and
+reboot to make it live. Checking `md5sum` of both paths is a quick way to tell
+whether you are looking at a cached copy.
