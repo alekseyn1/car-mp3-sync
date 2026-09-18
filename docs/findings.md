@@ -286,3 +286,38 @@ upper copy    : none
 Verify by reading the file under `/media/root-ro/`, not at its normal path, and
 reboot to make it live. Checking `md5sum` of both paths is a quick way to tell
 whether you are looking at a cached copy.
+y    : none
+```
+
+Verify by reading the file under `/media/root-ro/`, not at its normal path, and
+reboot to make it live. Checking `md5sum` of both paths is a quick way to tell
+whether you are looking at a cached copy.
+
+## Embedded cover art has two separate failure modes
+
+Art that will not display in a head unit is usually blamed on one thing. It was
+two here, affecting overlapping sets of files, so fixing the first revealed
+nothing and looked like a failure.
+
+**Format and tag version.** Files produced by yt-dlp carried JPEG art in an
+ID3v2.4 tag and never displayed; files from the older pipeline carried PNG in
+ID3v2.3 and did. `--convert-thumbnails png` plus
+`tag.save(version=eyed3.id3.ID3_V2_3)` brings new downloads into line.
+
+**Byte size.** Independently of format, art above roughly 400 KB does not load.
+The evidence was two files identical in every other respect:
+
+| Track | Art | Dimensions | ID3 | Displays |
+|---|---|---|---|---|
+| 009 | PNG 1283 KB | 1280x720 | v2.3 | no |
+| 022 | PNG **398 KB** | 1280x720 | v2.3 | yes |
+| 010 | PNG 126 KB | 480x360 | v2.3 | yes |
+
+Same dimensions on 009 and 022, so it is not resolution. Downscaling the 78
+oversized files to 640 px and about 250 KB fixed every remaining one.
+
+Diagnose by dumping the APIC frame length straight from the file rather than
+trusting a tag editor, and compare a working file against a broken one field by
+field before forming a theory. Two confident theories died here before the data
+settled it.
+

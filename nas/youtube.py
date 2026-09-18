@@ -247,7 +247,8 @@ def set_title_tag(path, title, position=None, total=None):
         audiofile.tag.title = title
         if position is not None:
             audiofile.tag.track_num = (position, total)
-        audiofile.tag.save()
+        # v2.3, not eyed3's default v2.4 - see the --convert-thumbnails note
+        audiofile.tag.save(version=eyed3.id3.ID3_V2_3)
     except Exception as error:
         print("     (could not set title tag: %s)" % error)
 
@@ -265,6 +266,13 @@ def download_track(vid, dest_path):
                '--audio-format', 'mp3',
                '--audio-quality', AUDIO_QUALITY,
                '--embed-thumbnail',
+               # PNG, not the default JPEG. The head unit displays the cover art
+               # on every file from the original pytubefix/moviepy pipeline -
+               # all of which are PNG in an ID3v2.3 tag - and on none of the
+               # yt-dlp ones, which were JPEG in ID3v2.4. Matching the format
+               # that demonstrably works rather than guessing which of the two
+               # differences matters.
+               '--convert-thumbnails', 'png',
                '--embed-metadata',
                '--ffmpeg-location', FFMPEG_DIR,
                '--no-progress',
