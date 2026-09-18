@@ -117,7 +117,31 @@ fi
 [ -d "$SRC" ] || { log "source dir missing: $SRC"; beep failed; exit 1; }
 
 LOOP=$(losetup -fP --show "$IMG") || { log "losetup failed"; beep failed; exit 1; }
-mount -o "$VFAT_OPTS" "${LOOP}p1" "$SYNCMNT" || { log "image mount failed"; beep failed; exit 1; }
+# Repair the target before writing to it. A run that dies mid-write - a full
+# disk, a power cut - leaves the image dirty, and vfat then remounts read-only
+# the moment rsync touches it, so every subsequent sync fails identically until
+# someone intervenes. The post-sync fsck below guards what the car receives;
+# this one guards what we are about to write into.
+if command -v fsck.vfat >/dev/null; then
+  FSCKOUT=$(fsck.vfat -a "${LOOP}p1" 2>&1)
+  case "$FSCKOUT" in
+    *"Dirty bit"*|*"Auto-correcting"*|*"Reclaimed"*|*"Truncating"*)
+      log "repaired $TARGET before writing: $(printf '%s' "$FSCKOUT" | grep -cE 'Auto-correcting|Truncating|Reclaimed|Dirty') issue(s)" ;;
+  esac
+fi
+
+mount -o "$VFAT_OPTS,discard" "${LOOP}p1" "$SYNCMNT" || { log "image mount failed"; beep failed; exit 1; }
+
+# fsck.vfat salvages orphaned cluster chains into FSCK####.REC files at the
+# image root. They are repair debris, never content - but rsync sees files the
+# source does not have and tries to delete them, which trips --max-delete and
+# fails the whole sync. Clear them here so the delete guard stays meaningful
+# for actual music.
+RECS=$(find "$SYNCMNT" -maxdepth 1 -iname 'FSCK*.REC' 2>/dev/null | wc -l)
+if [ "$RECS" -gt 0 ]; then
+  find "$SYNCMNT" -maxdepth 1 -iname 'FSCK*.REC' -delete 2>/dev/null
+  log "removed $RECS fsck recovery file(s) from $TARGET"
+fi
 
 # --max-delete is the second line of defence behind youtube.py's own gate:
 # a bad run on the NAS must never be able to empty the car.
@@ -137,6 +161,17 @@ fi
 FILES=$(find "$SYNCMNT" -type f | wc -l)
 log "image $TARGET now holds $FILES files"
 ls -la "$SYNCMNT" | tail -n +2 >> "$LOG"
+
+# The images are sparse. rsync replacing a file frees the old clusters inside
+# FAT32, but ext4 keeps those blocks allocated in the backing file, so each
+# image creeps toward its full apparent size no matter how little it holds -
+# 2.8 GB of music was occupying 7.5 GB after enough sync cycles, and eventually
+# filled /data and forced the image read-only mid-write. Punch the freed
+# clusters back out.
+if command -v fstrim >/dev/null; then
+  TRIMMED=$(fstrim -v "$SYNCMNT" 2>/dev/null | sed 's/.*: //')
+  [ -n "$TRIMMED" ] && log "fstrim: reclaimed $TRIMMED"
+fi
 
 umount "$SYNCMNT"
 

@@ -321,3 +321,31 @@ trusting a tag editor, and compare a working file against a broken one field by
 field before forming a theory. Two confident theories died here before the data
 settled it.
 
+## Sparse images grow until they fill the disk
+
+The A/B images are created with `truncate -s 8G`, so they start near zero and
+hold only what is written. But rsync replacing a file frees the old clusters
+*inside* FAT32 while ext4 keeps those blocks allocated in the backing file. The
+image therefore creeps toward its full apparent size no matter how little it
+contains - 2.8 GB of music was occupying 7.5 GB after enough sync cycles.
+
+When `/data` filled, the image went read-only mid-write and the sync failed. The
+image was left dirty, so every retry failed identically, and the five-minute
+retry timer turned that into a failure beep every five minutes.
+
+Mount with `-o discard` and run `fstrim` before unmounting. It reclaimed 5.2 GiB
+per image here, and the sync now does it every run.
+
+## Repair the image before writing, not only after
+
+The sync fsck'd the image after rsync, to avoid handing the car something that
+would not mount. That guards the wrong end. A run that dies mid-write leaves the
+image dirty, and vfat then remounts read-only the moment rsync touches it, so
+every later sync fails the same way with no path to recovery.
+
+`fsck.vfat -a` before mounting makes it self-healing. But note the side effect:
+fsck salvages orphaned cluster chains into `FSCK####.REC` files at the image
+root, and rsync then tries to delete them and trips `--max-delete`, failing the
+sync for a different reason. Delete that debris explicitly so the delete guard
+stays meaningful for actual content.
+
