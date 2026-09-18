@@ -286,12 +286,6 @@ upper copy    : none
 Verify by reading the file under `/media/root-ro/`, not at its normal path, and
 reboot to make it live. Checking `md5sum` of both paths is a quick way to tell
 whether you are looking at a cached copy.
-y    : none
-```
-
-Verify by reading the file under `/media/root-ro/`, not at its normal path, and
-reboot to make it live. Checking `md5sum` of both paths is a quick way to tell
-whether you are looking at a cached copy.
 
 ## Embedded cover art has two separate failure modes
 
@@ -361,3 +355,13 @@ sector, little-endian, mirrored in the backup boot sector at sector 6, and the
 filesystem must be unmounted to change it. `pi/bin/carmp3-volid` does this and
 the sync applies it on every run, so a rebuilt image does not revert.
 
+## Keep the journal when root is read-only
+
+`overlayroot` puts `/var/log/journal` in RAM, so each boot's log dies with it -
+and a unit that reboots unexpectedly in a car erases its own evidence. Symlink
+`/var/log/journal` to a directory on the writable partition and set
+`Storage=persistent` with a size cap. `systemd-journal-flush` moves the early
+boot records across once the partition is mounted, so nothing is lost.
+
+Verify with `journalctl --list-boots` after two reboots: boot `-1` should still
+be readable.

@@ -106,6 +106,26 @@ systemctl daemon-reload
 systemctl enable carmp3-gadget carmp3-sync carmp3-beep-init carmp3-net-trim >/dev/null 2>&1
 # --now so the timer is live immediately, not only after the next reboot
 systemctl enable --now carmp3-retry.timer >/dev/null 2>&1
+# Persistent journal on /data. Under a read-only overlay the journal lives in
+# RAM and dies with the boot, which erases exactly the evidence you want after
+# a unit reboots unexpectedly in a car. Capped so it cannot crowd out the images.
+mkdir -p /data/journal && chmod 2755 /data/journal
+chgrp systemd-journal /data/journal 2>/dev/null
+rm -rf /var/log/journal && ln -sfn /data/journal /var/log/journal
+mkdir -p /etc/systemd/journald.conf.d
+cat > /etc/systemd/journald.conf.d/persistent.conf <<'JCONF'
+[Journal]
+Storage=persistent
+SystemMaxUse=64M
+SystemMaxFileSize=8M
+SystemMaxFiles=8
+RuntimeMaxUse=16M
+JCONF
+mkdir -p /etc/systemd/system/systemd-journal-flush.service.d
+printf '[Unit]
+RequiresMountsFor=/data
+' > /etc/systemd/system/systemd-journal-flush.service.d/data.conf
+
 note "installed and enabled"
 
 # ---------------------------------------------------------------- stage 5
