@@ -272,3 +272,23 @@ then waits for the tailnet — roughly two to three minutes before it gives up a
 sounds the failure beep. That is deliberate: the tailnet genuinely needs time on
 a remote unit. The consequence is that the "no network" beep arrives well after
 you have pulled away, which is worth knowing before you conclude it is broken.
+
+## Scripted install
+
+`install.sh` does everything mechanical. Run it repeatedly — it works out what
+is already done and tells you when a reboot is needed:
+
+```bash
+git clone https://github.com/alekseyn1/car-mp3-sync.git && cd car-mp3-sync
+sudo UNIT_NAME=mp3drive-<where> NAS_HOST_LAN=<lan-ip> NAS_HOST_VPN=<tailnet-ip> ./install.sh
+# reboot when it says so, then run it again - three passes in total
+```
+
+It stops short of anything needing a secret or a decision: NAS credentials, WiFi
+profiles, Tailscale auth, the first seed, and read-only root. Those are listed
+at the end of its output.
+
+**Do not run it on a Pi that is under-volted.** Check `vcgencmd get_throttled`
+returns `0x0` under load first — the root shrink relocates blocks, and a
+brownout during that can damage the card in ways that only show up later. A 2 A
+supply is not enough for a Pi 4; use 3 A.
