@@ -8,7 +8,12 @@ set -uo pipefail
 # script itself stays generic; see carmp3.conf.example.
 [ -r /etc/carmp3.conf ] && . /etc/carmp3.conf
 
-NAS_HOST="${NAS_HOST:-192.168.10.5}"
+# Two routes to the NAS. The LAN address is tried first because it is fast and
+# costs nothing. NAS_HOST_VPN is the tailnet address, used when the car is not
+# at home - and for a unit that never sees the home LAN at all (a car in another
+# country) it is the only route.
+NAS_HOST_LAN="${NAS_HOST_LAN:-${NAS_HOST:-192.168.10.5}}"
+NAS_HOST_VPN="${NAS_HOST_VPN:-}"
 NAS_SHARE="${NAS_SHARE:-Storage}"
 NAS_SUBPATH="${NAS_SUBPATH:-Music/Youtube/Output}"
 CRED="${CRED:-/etc/carmp3-nas.cred}"
@@ -47,11 +52,48 @@ log "=== sync start: car is playing $ACTIVE, writing into $TARGET ==="
 
 [ -f "$IMG" ] || { log "target image missing: $IMG"; beep failed; exit 1; }
 
-if ! ping -c1 -W2 "$NAS_HOST" >/dev/null 2>&1; then
-  log "NAS not reachable - not at home, nothing to do"
+# Pick a route. Tailscale is not up yet at the point in boot where this runs,
+# so give it a little time before concluding we are offline.
+pick_nas() {
+  # Wait for the interface to actually carry a route. This runs early enough in
+  # boot that WiFi is often still associating, and a single failed LAN ping here
+  # sends a car that is sitting at home out over the tailnet instead.
+  i=0
+  while [ $i -lt 20 ] && ! ip -4 route show default 2>/dev/null | grep -q .; do
+    sleep 1; i=$((i+1))
+  done
+
+  # LAN first, with a few attempts - it is faster and avoids the relay.
+  if [ -n "$NAS_HOST_LAN" ]; then
+    i=0
+    while [ $i -lt 5 ]; do
+      if ping -c1 -W2 "$NAS_HOST_LAN" >/dev/null 2>&1; then
+        ROUTE=lan; NAS_HOST="$NAS_HOST_LAN"; return 0
+      fi
+      sleep 2; i=$((i+1))
+    done
+  fi
+  [ -n "$NAS_HOST_VPN" ] || return 1
+  command -v tailscale >/dev/null 2>&1 || return 1
+  i=0
+  while [ $i -lt 30 ]; do
+    if tailscale status >/dev/null 2>&1        && ping -c1 -W3 "$NAS_HOST_VPN" >/dev/null 2>&1; then
+      ROUTE=vpn; NAS_HOST="$NAS_HOST_VPN"
+      [ $i -gt 0 ] && log "waited $((i*2))s for the tailnet"
+      return 0
+    fi
+    sleep 2; i=$((i+1))
+  done
+  return 1
+}
+
+ROUTE=""; NAS_HOST=""
+if ! pick_nas; then
+  log "NAS unreachable on LAN ($NAS_HOST_LAN) or tailnet (${NAS_HOST_VPN:-unset}) - nothing to do"
   beep nowifi
   exit 0
 fi
+log "reaching the NAS over $ROUTE at $NAS_HOST"
 
 if ! mount -t cifs "//$NAS_HOST/$NAS_SHARE" "$NASMNT" \
       -o "credentials=$CRED,ro,vers=3.0,uid=1000,gid=1000,iocharset=utf8"; then

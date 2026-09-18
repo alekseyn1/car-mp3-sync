@@ -122,6 +122,18 @@ The parts that cost real time are written up in
 - A single unclean power cut deleted the saved WiFi profile. In a car that
   happens every trip, which is why root is read-only.
 
+## More than one car
+
+The NAS is a read-only source, so units never contend — scaling sideways is a
+config file and a hostname per unit. For a car that is never on the home LAN,
+put both ends on a **Tailscale** tailnet and set `NAS_HOST_VPN`; the sync tries
+the LAN first and falls back to the tailnet, so the same build works whether the
+car is in the driveway or on another continent. No ports are exposed, and a
+stolen unit is revoked with one click.
+
+If root is read-only, Tailscale's node state has to be moved off it or the unit
+forgets its identity on every reboot. See [docs/build.md](docs/build.md).
+
 ## The NAS side
 
 `nas/youtube.py` downloads YouTube playlists as MP3s with cover art, one folder

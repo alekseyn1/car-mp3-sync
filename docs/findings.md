@@ -216,3 +216,41 @@ the first seconds logs against it, and NTP corrects a few seconds later. Log
 lines can therefore be stamped minutes *earlier* than they happened and appear
 to predate entries already in the file. Compare `uptime -s` with `date` before
 concluding a log is stale — it cost a round of confusion here.
+
+## Tailscale's node identity lives on root, which read-only root discards
+
+Installing Tailscale on a unit with an overlay root looks fine and works
+perfectly - until the first reboot, when the node has forgotten who it is and
+wants an auth key that has probably expired by then.
+
+`tailscaled` keeps its state in `/var/lib/tailscale`, which is on root, so under
+`overlayroot=tmpfs` it is RAM-backed. Move it to the writable partition:
+
+```ini
+# /etc/systemd/system/tailscaled.service.d/state.conf
+[Service]
+ExecStart=
+ExecStart=/usr/sbin/tailscaled --state=/data/tailscale/tailscaled.state \
+  --statedir=/data/tailscale --socket=/run/tailscale/tailscaled.sock --port=${PORT}
+```
+
+**Clearing `ExecStart=` first is the part that matters.** The packaged unit
+hardcodes `--state=/var/lib/tailscale/...`, so simply adding flags via
+`/etc/default/tailscaled` produces a command line with `--state=` twice and
+leaves you depending on which one the flag parser happens to honour. That is not
+a contract worth relying on. Check what is actually running:
+
+```sh
+tr '\0' ' ' < /proc/$(pgrep -x tailscaled)/cmdline
+```
+
+## Do not judge the network from one ping at boot
+
+The first version of the route picker tried the LAN once, and if that failed
+went to the tailnet. A car sitting in its own driveway then synced over the VPN,
+because the sync starts around 16 s into boot and WiFi has often not finished
+associating yet.
+
+Wait for a default route to exist, then give the LAN several attempts before
+falling back. The symptom is subtle - everything works, just over the slow and
+more expensive path.

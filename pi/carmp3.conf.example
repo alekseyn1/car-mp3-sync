@@ -1,8 +1,12 @@
 # /etc/carmp3.conf - site settings for carmp3-sync.
 # Every value here has a default in the script; set only what differs.
 
-# NAS holding the library
-NAS_HOST=192.168.10.5
+# NAS holding the library.
+# NAS_HOST_LAN is tried first. NAS_HOST_VPN is the Tailscale address, used when
+# the car is away from home - and it is the ONLY route for a unit that never
+# sees the home LAN. Leave NAS_HOST_VPN empty to disable the fallback.
+NAS_HOST_LAN=192.168.10.5
+NAS_HOST_VPN=
 NAS_SHARE=Storage
 NAS_SUBPATH=Music/Youtube/Output
 

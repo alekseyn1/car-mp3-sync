@@ -156,3 +156,79 @@ Zero has two micro-USB ports, and in the car power *and* data both come through
 the one marked **`USB`** while `PWR IN` stays empty. On the bench you would
 naturally power from `PWR IN` instead, which is an easy thing to get backwards
 when installing.
+
+## Remote units, and more than one car
+
+The design scales sideways almost for free: the NAS is a read-only source, so
+units never contend. What differs per unit is a config file and a hostname.
+
+### Reaching a NAS you are not on the LAN with
+
+Do **not** port-forward SMB. Put both ends on a Tailscale tailnet instead —
+nothing is exposed publicly, it traverses CGNAT and phone hotspots, and a stolen
+unit is revoked with one click in the admin console without touching the NAS or
+the other cars.
+
+On a Synology (DSM 7, x86_64):
+
+```sh
+curl -sLO https://pkgs.tailscale.com/stable/tailscale-x86_64-<ver>-dsm7.spk
+sudo synopkg install ./tailscale-x86_64-<ver>-dsm7.spk
+sudo synopkg start Tailscale
+sudo /var/packages/Tailscale/target/bin/tailscale up --hostname=<nas> --accept-dns=false
+```
+
+`--accept-dns=false` keeps MagicDNS from taking over resolution on a box that
+serves local services by name. Take the arch from the `?mode=json` index; a
+DS1515+ is avoton, which is `x86_64`.
+
+On each Pi:
+
+```sh
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up --hostname=<unit> --accept-dns=false
+sudo cp pi/systemd/dropins/tailscaled-state.conf \
+        /etc/systemd/system/tailscaled.service.d/state.conf     # see below
+```
+
+**That drop-in is not optional if root is read-only** — Tailscale keeps its node
+identity in `/var/lib/tailscale`, which the overlay discards on reboot. See
+[findings.md](findings.md).
+
+Then set both routes in `/etc/carmp3.conf`:
+
+```
+NAS_HOST_LAN=192.168.10.5      # tried first, fast, free
+NAS_HOST_VPN=100.74.9.101      # the tailnet address
+```
+
+The sync waits for a default route, tries the LAN a few times, and only then
+uses the tailnet. A unit that never sees the home LAN simply always takes the
+second path.
+
+### Per-unit differences
+
+| | |
+|---|---|
+| Hostname | `mp3drive-<where>`, also used as the Tailscale node name |
+| `NAS_SUBPATH` | lets each car sync a different folder |
+| NAS account | one per unit, so a stolen unit is revoked alone |
+| WiFi | add every network the car will see; NetworkManager picks by priority |
+
+Multiple WiFi profiles cost nothing:
+
+```sh
+sudo nmcli connection add type wifi con-name <SSID> ifname wlan0 ssid <SSID> \
+  wifi-sec.key-mgmt wpa-psk wifi-sec.psk '<psk>' \
+  connection.autoconnect yes connection.autoconnect-priority 5
+```
+
+A phone hotspot added this way turns any drive into a sync opportunity. If you
+do that, consider gating cellular syncs on how stale the library is — otherwise
+every trip quietly spends mobile data.
+
+### Seed a remote unit before it travels
+
+Do the first sync on the LAN. Several gigabytes over an intercontinental link,
+through a tunnel, in the minutes an engine happens to be running is not a good
+first experience. After that the deltas are small.
