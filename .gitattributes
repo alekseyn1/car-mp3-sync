@@ -1,0 +1,5 @@
+# Everything here is either a shell script, a Python script or a systemd unit,
+# and all of it is checked out onto a Pi. Committing CRLF would break the
+# shebang line ("bad interpreter: /bin/sh^M"), so normalise to LF in the
+# repository and check out LF even on Windows.
+* text=auto eol=lf
