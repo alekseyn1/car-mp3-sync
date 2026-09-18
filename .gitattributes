@@ -1,5 +1,7 @@
 # Everything here is either a shell script, a Python script or a systemd unit,
-# and all of it is checked out onto a Pi. Committing CRLF would break the
-# shebang line ("bad interpreter: /bin/sh^M"), so normalise to LF in the
-# repository and check out LF even on Windows.
+# and all of it is checked out onto a Pi, where a CRLF shebang fails as
+# "bad interpreter: /bin/sh^M". The blobs are already LF - they were authored
+# on Windows with core.autocrlf enabled, which normalises on commit - but that
+# depends on the contributor's local setting. Pinning it here makes the
+# repository's line endings a property of the repository instead.
 * text=auto eol=lf
