@@ -1,0 +1,10 @@
+#!/bin/sh
+# Retry the sync if this boot has not had a successful one yet.
+#
+# The NetworkManager dispatcher covers a network appearing. This covers the
+# cases it cannot see: the network was already up but the NAS was briefly
+# unreachable, or the tailnet took longer to establish than the sync was
+# willing to wait. No NM event fires for either, so without this the unit
+# simply never tries again until the next engine start.
+[ -e /run/carmp3-sync.ok ] && exit 0
+exec systemctl start --no-block carmp3-sync.service

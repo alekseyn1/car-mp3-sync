@@ -1,0 +1,7 @@
+[Unit]
+Description=Retry the car music sync if this boot has not managed one yet
+After=carmp3-sync.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/carmp3-retry

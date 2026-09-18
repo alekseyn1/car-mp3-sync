@@ -151,5 +151,9 @@ echo "$TARGET" > "$STATE/active"
 sync
 log "flipped: next boot serves $TARGET"
 
+# Marker so a retry trigger knows this boot is already done. /run is tmpfs, so
+# it clears on reboot and every engine start gets a fresh attempt.
+: > /run/carmp3-sync.ok
+
 if [ "$CHANGES" -gt 0 ]; then beep synced; else beep current; fi
 log "=== sync done ==="

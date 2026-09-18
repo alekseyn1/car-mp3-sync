@@ -77,6 +77,16 @@ Plus a microSD card (32 GB is ample), a **data** USB cable, and optionally an
 active piezo buzzer with an NPN transistor, 1 kΩ and 10 kΩ — see
 [docs/hardware.md](docs/hardware.md).
 
+## If the network shows up late
+
+The sync is not a single shot at boot. If the car starts out of range, turning
+on a phone hotspot mid-drive completes it — a NetworkManager dispatcher hook
+fires the moment an interface comes up, and a five-minute timer covers the cases
+that produce no NM event at all (NAS briefly down, tailnet slow to establish).
+
+Both are guarded by a marker in `/run`, so once a drive has synced they become
+no-ops instead of repeatedly re-scanning the library over mobile data.
+
 ## What it sounds like
 
 The unit has no screen and lives in a glovebox, so the beep is the whole UI:

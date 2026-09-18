@@ -1,0 +1,29 @@
+#!/bin/sh
+# NetworkManager dispatcher: retry the sync when a network appears.
+#
+# The boot sync is one-shot, so a car that starts out of range - or whose driver
+# turns on a phone hotspot ten minutes into the drive - would otherwise never
+# sync until the next engine start. This fires the moment an interface comes up.
+#
+# Guarded by /run/carmp3-sync.ok: once a sync has succeeded this boot there is
+# nothing to redo, and retrying on every reconnect would spend mobile data on a
+# pointless file-list comparison.
+IFACE="$1"
+ACTION="$2"
+
+case "$ACTION" in
+  up|connectivity-change) ;;
+  *) exit 0 ;;
+esac
+
+case "$IFACE" in
+  wlan0|eth0) ;;
+  *) exit 0 ;;
+esac
+
+[ -e /run/carmp3-sync.ok ] && exit 0
+
+# --no-block: dispatcher scripts run synchronously and NetworkManager will kill
+# a slow one. Hand it to systemd and return immediately. carmp3-sync takes an
+# flock, so overlapping triggers are harmless.
+exec systemctl start --no-block carmp3-sync.service

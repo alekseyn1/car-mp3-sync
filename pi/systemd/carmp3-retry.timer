@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodically retry the car music sync until one succeeds
+
+[Timer]
+# First attempt a few minutes in, then every five. Each run is a no-op once a
+# sync has succeeded, so this costs nothing for the rest of the drive.
+OnBootSec=4min
+OnUnitActiveSec=5min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

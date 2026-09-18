@@ -232,3 +232,43 @@ every trip quietly spends mobile data.
 Do the first sync on the LAN. Several gigabytes over an intercontinental link,
 through a tunnel, in the minutes an engine happens to be running is not a good
 first experience. After that the deltas are small.
+
+## Retrying when the network shows up late
+
+The boot sync is one-shot. A car that starts out of range — or whose driver
+turns on a phone hotspot ten minutes into the drive — would otherwise do nothing
+until the next engine start. Two triggers cover that, both cheap:
+
+```bash
+sudo cp pi/bin/carmp3-retry /usr/local/sbin/ && sudo chmod +x /usr/local/sbin/carmp3-retry
+sudo cp pi/networkmanager/90-carmp3-sync /etc/NetworkManager/dispatcher.d/
+sudo chown root:root /etc/NetworkManager/dispatcher.d/90-carmp3-sync
+sudo chmod 755      /etc/NetworkManager/dispatcher.d/90-carmp3-sync
+sudo cp pi/systemd/carmp3-retry.* /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now carmp3-retry.timer
+```
+
+**The dispatcher** fires the instant an interface comes up — this is the hotspot
+case, and it responds immediately with no polling.
+
+**The timer** covers what the dispatcher cannot see: the network was already up
+but the NAS was briefly unreachable, or the tailnet took longer to establish
+than the sync waited. Neither produces a NetworkManager event.
+
+Both are guarded by `/run/carmp3-sync.ok`, written on a successful sync. `/run`
+is tmpfs, so every engine start gets a fresh attempt, and once a drive has
+synced the retries become no-ops rather than spending mobile data on repeated
+file-list comparisons.
+
+The dispatcher script must be **root-owned and not group-writable** or
+NetworkManager silently ignores it. It also hands off with
+`systemctl start --no-block`, because dispatcher scripts run synchronously and a
+slow one gets killed.
+
+### A note on timing
+
+When nothing is reachable the sync waits for a default route, retries the LAN,
+then waits for the tailnet — roughly two to three minutes before it gives up and
+sounds the failure beep. That is deliberate: the tailnet genuinely needs time on
+a remote unit. The consequence is that the "no network" beep arrives well after
+you have pulled away, which is worth knowing before you conclude it is broken.
