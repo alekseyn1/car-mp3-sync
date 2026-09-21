@@ -365,3 +365,91 @@ boot records across once the partition is mounted, so nothing is lost.
 
 Verify with `journalctl --list-boots` after two reboots: boot `-1` should still
 be readable.
+
+## overlayroot makes four boot services fail, harmlessly
+
+Every boot prints what looks like a serious failure:
+
+```
+systemd-remount-fs[1595]: mount: /: fsconfig() failed:
+                          overlay: No changes allowed in reconfigure.
+Dependency failed for rpi-setup-loop@var-swap.service
+Dependency failed for systemd-zram-setup@zram0.service
+Dependency failed for dev-zram0.swap
+Dependency failed for rpi-resize-swap-file.service
+```
+
+`systemd-remount-fs` re-mounts `/` according to `/etc/fstab`, and overlayfs
+rejects a reconfigure outright. The other three are swap setup, which orders
+itself after that unit and so never runs. Nothing here needs fixing: swap on a
+read-only-root Pi is pointless, and root is already mounted the way it should
+be. Mask the swap units if the console noise bothers you, but leave
+`systemd-remount-fs` alone - other things order themselves after it.
+
+Worth knowing so it is not mistaken for the cause of a real fault. It was, here,
+during an unrelated hunt.
+
+## The WiFi profile is not where you would expect, and cloud-init owns it
+
+Raspberry Pi OS applies the Imager's WiFi settings through cloud-init, from a
+seed at `/boot/firmware/network-config`. That becomes netplan YAML in
+`/etc/netplan/90-NM-<uuid>.yaml`, which NetworkManager renders into a connection
+under **`/run/NetworkManager/system-connections/`** - a tmpfs, rebuilt on every
+boot.
+
+```
+netplan-wlan0-Skywalker  ->  /run/NetworkManager/system-connections/   volatile
+ValMe                    ->  /etc/NetworkManager/system-connections/   persistent
+```
+
+So `nmcli con show` lists the network you rely on, and the file behind it does
+not survive a reboot on its own. Before disabling cloud-init, write a real
+profile into `/etc/NetworkManager/system-connections/` - on a read-only root
+that means `/media/root-ro/...`, with the lower layer remounted rw. Copy the
+runtime file rather than retyping the key, give it a fresh UUID, and `chmod
+600`; NetworkManager ignores a group- or world-readable profile.
+
+Add a wired profile at the same time. `eth0` comes from the same seed, so a unit
+with no WiFi has no fallback either.
+
+The netplan YAML itself *is* persistent, so NetworkManager's netplan backend
+would probably rebuild the connection without cloud-init. An explicit profile
+removes the question, which is worth more than the argument when the unit is
+about to be 8,000 km away.
+
+## Disabling cloud-init takes 12 seconds off the boot
+
+Raspberry Pi OS runs cloud-init on every boot to apply the Imager's
+customisation, long after there is anything left to apply. On a unit whose whole
+design depends on syncing before the car leaves WiFi range, that is 12 seconds
+of the window spent re-deciding settled questions.
+
+Measured on `mp3drive-sfax`, same card, same charger, one reboot apart:
+
+| | before | after |
+|---|---|---|
+| total | 46.690s | **35.048s** |
+| userspace | 43.687s | 32.085s |
+| NetworkManager starts | @14.740s | @6.587s |
+| `network-online.target` | @30.091s | **@22.135s** |
+| `multi-user.target` | @43.402s | @32.082s |
+
+`network-online.target` is the number that matters - nothing can sync before it.
+It moved 8 seconds earlier, because cloud-init sits in the `sysinit.target`
+chain ahead of NetworkManager rather than costing time on its own; only
+`cloud-init-main` was individually slow, at 7.8s.
+
+Disable it the supported way, which on a read-only root means the lower layer:
+
+```sh
+mount -o remount,rw /media/root-ro
+touch /media/root-ro/etc/cloud/cloud-init.disabled
+mount -o remount,ro /media/root-ro
+```
+
+**Write a persistent WiFi profile first** - see the section above on where the
+profile actually lives. Do not automate this in `install.sh`: on a machine whose
+WiFi came from the Imager seed it can remove the only route back in.
+
+For comparison, the USB gadget binds in under a second and is not worth tuning.
+The car sees the drive almost immediately; it is the network that is slow.
