@@ -563,3 +563,48 @@ Worth stating plainly because two failures here had unrelated, mundane causes -
 a card that needed reseating and a charger that died - while the fan happened to
 be connected for both. That was enough to suggest a pattern that did not exist.
 Two coincidences are not a trial.
+
+## The pointer is not what the car is reading
+
+The sync chose its target from `/data/state/active`:
+
+```sh
+ACTIVE=$(cat "$STATE/active")
+case "$ACTIVE" in A) TARGET=B ;; B) TARGET=A ;; esac
+```
+
+That is right exactly once per boot. `carmp3-gadget-active` reads the pointer at
+boot and binds that image, so at that moment pointer and bound image agree - but
+the sync **flips the pointer when it finishes**. From then on they disagree, and
+a second sync in the same boot resolves its target to the image the gadget is
+currently serving. It writes into the volume the car is reading, which is the
+one thing the A/B split exists to prevent.
+
+Observed: `pointer=B`, gadget bound `B.img`, and the log cheerfully reporting
+`car is playing A, writing into B`.
+
+The pointer is a statement about the *next* boot. The authoritative answer to
+"what is the car reading right now" is the gadget itself:
+
+```sh
+LUN=/sys/kernel/config/usb_gadget/carmp3/functions/mass_storage.0/lun.0/file
+BOUND=$(cat "$LUN" 2>/dev/null); BOUND=${BOUND##*/}; BOUND=${BOUND%.img}
+case "$BOUND" in
+  A|B) ACTIVE=$BOUND ;;
+  *)   ACTIVE=$(cat "$STATE/active" 2>/dev/null) ;;   # gadget not up yet
+esac
+```
+
+Normal operation never reached this, which is why it survived so long. The
+retry path is guarded by `/run/carmp3-sync.ok` and only runs when the first
+sync *failed* - and a failed sync does not flip the pointer, so the retry
+recomputes the same correct target. It takes a manual `systemctl restart
+carmp3-sync` to get there.
+
+Two things made it harmless when it did fire: no USB host was attached
+(`/sys/class/udc/*/state` said `not attached`, the port in use was power-only),
+and the sync still fsck'd the image before flipping. Both images came out
+byte-identical and clean. That is luck, not design.
+
+Verified after the fix on a unit whose gadget held `A.img` with the pointer
+already flipped to `B` - the exact state that used to mis-resolve. It chose B.

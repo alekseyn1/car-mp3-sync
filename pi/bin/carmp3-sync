@@ -54,7 +54,19 @@ cleanup() {
 }
 trap cleanup EXIT
 
-ACTIVE=$(cat "$STATE/active" 2>/dev/null)
+# What the car is being served is whatever the gadget has bound, which is not
+# the same thing as the pointer: the pointer is flipped at the end of every run.
+# Deriving the target from the pointer means a second sync in the same boot
+# picks the live image and writes into the volume the car is reading - exactly
+# what the A/B split exists to prevent. Ask the gadget instead, and fall back to
+# the pointer only when it is not up yet (which is the case early in boot).
+LUN=/sys/kernel/config/usb_gadget/carmp3/functions/mass_storage.0/lun.0/file
+BOUND=$(cat "$LUN" 2>/dev/null)
+BOUND=${BOUND##*/}; BOUND=${BOUND%.img}
+case "$BOUND" in
+  A|B) ACTIVE=$BOUND ;;
+  *)   ACTIVE=$(cat "$STATE/active" 2>/dev/null) ;;
+esac
 case "$ACTIVE" in A) TARGET=B ;; B) TARGET=A ;; *) ACTIVE=A; TARGET=B ;; esac
 IMG="$IMAGES/$TARGET.img"
 log "=== sync start: car is playing $ACTIVE, writing into $TARGET ==="
