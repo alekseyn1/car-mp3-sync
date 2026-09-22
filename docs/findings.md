@@ -608,3 +608,39 @@ byte-identical and clean. That is luck, not design.
 
 Verified after the fix on a unit whose gadget held `A.img` with the pointer
 already flipped to `B` - the exact state that used to mis-resolve. It chose B.
+
+## Retire the netplan connections once a real profile exists
+
+Writing a persistent profile does not stop netplan rebuilding its own copy into
+`/run` on every boot, and NetworkManager keeps activating that one - so the
+volatile connection stays in charge and the persistent file is only a spare.
+Remove the generated YAML from the persistent layer to finish the job:
+
+```sh
+cp -a /media/root-ro/etc/netplan/. /data/netplan-backup/
+mount -o remount,rw /media/root-ro
+rm -f /media/root-ro/etc/netplan/90-NM-*.yaml
+mount -o remount,ro /media/root-ro
+```
+
+Prove the replacement works *before* removing anything, and do it with a way
+back. Activating the persistent profile from a detached job, with a reboot
+armed to fire a few minutes later unless cancelled, makes the failure mode a
+reboot rather than a unit that has to be fetched:
+
+```sh
+systemd-run --unit=netrevert --on-active=180 systemctl reboot
+systemd-run --unit=netswitch --on-active=3 nmcli con up Skywalker
+# reconnect, confirm, then: systemctl stop netrevert.timer
+```
+
+The reboot restores the working state precisely because the netplan files are
+still there at that point. Delete them only after the profile has carried a
+session.
+
+`NetworkManager.service` dropped from 9.549s to 5.729s afterwards, and
+`network-online.target` moved 1.7s earlier. Total boot did not move (35.0s ->
+35.4s) - but that unit was under-volting on an inadequate supply at the time,
+its kernel phase alone varied by 1.5s between the two runs, and a throttled
+board makes every boot measurement noise. Worth repeating on clean power before
+believing any of it.
