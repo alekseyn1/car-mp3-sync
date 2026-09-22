@@ -453,3 +453,63 @@ WiFi came from the Imager seed it can remove the only route back in.
 
 For comparison, the USB gadget binds in under a second and is not worth tuning.
 The car sees the drive almost immediately; it is the network that is slow.
+
+## The case fan: prove the pin controls it before trusting an overlay
+
+A case whose instructions say "5V, GND, TXD" is telling you the fan's control
+line goes to GPIO14. That does not mean the Pi is driving it. On a stock image
+with no serial console, GPIO14 is an undriven input:
+
+```
+14: ip    pn | hi   // input, no pull, reading high
+```
+
+The fan still runs, because its control input floats high on its own. So it
+looks like it works and is in fact completely uncontrolled - full speed whenever
+the board has 5 V. Two theories died here before the pin state was read: that
+TXD was idling high from the UART (there is no UART on it - `enable_uart` is
+unset) and that noise on the UART pins was spawning a getty storm
+(`serial-getty@ttyS0` is disabled).
+
+**Test the pin before adding the overlay.** Drive it and watch the SoC
+temperature - objective, and it needs nobody watching the fan:
+
+| phase | pin | temp | delta |
+|---|---|---|---|
+| HIGH | driven high | 58.9 -> 43.8C | **-15.1** |
+| LOW | driven low | 42.3 -> 52.1C | **+9.8** |
+| HIGH | driven high | 54.0 -> 40.9C | **-13.1** |
+
+Reversible across two independent HIGH phases, so the pin really does gate the
+fan, active-high - which is the polarity `gpio-fan` assumes.
+
+`/boot/firmware` is a real vfat partition mounted **ro**, not part of the
+overlay, so the edit persists once you remount it:
+
+```sh
+mount -o remount,rw /boot/firmware
+printf '\ndtoverlay=gpio-fan,gpiopin=14,temp=60000\n' >> /boot/firmware/config.txt
+mount -o remount,ro /boot/firmware
+```
+
+After reboot the kernel owns the pin and the fan is off below the trip:
+
+```
+cooling_device0: type=gpio-fan cur=0 max=1
+trip_point_0_temp: 60000 (active)
+14: op -- pn | lo        // was "ip pn | hi"
+```
+
+Verified under load: at 54C `fan=0`, and one sample later at 64.2C `fan=1`.
+
+### Do not stress-test a USB-powered Pi with synthetic load
+
+Pushing four cores to 100% to force the trip also collapsed the board - it froze
+mid-test, `/data` needed ext4 recovery, and the next boot reported
+`throttled=0x50005`, under-voltage live. At idle it settles back to `0x50000`,
+which is only the sticky record of what happened.
+
+That load is nothing like the real workload, which is an incremental rsync over
+WiFi. The fan trip could have been verified by simply waiting for a warm
+afternoon, or by dropping the trip temp to just under the idle temperature. Peak
+current on a supply this marginal is not a thing to spend carelessly.
