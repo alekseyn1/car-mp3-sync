@@ -513,3 +513,53 @@ That load is nothing like the real workload, which is an incremental rsync over
 WiFi. The fan trip could have been verified by simply waiting for a warm
 afternoon, or by dropping the trip temp to just under the idle temperature. Peak
 current on a supply this marginal is not a thing to spend carelessly.
+
+## sshd accepts and closes, with nothing in the log: reseat the card
+
+The symptom, twice:
+
+```
+kex_exchange_identification: Connection closed by remote host
+```
+
+TCP connects, sshd closes before sending its version string, and it does this
+to every client - so it is not a per-source block. Meanwhile the unit answers
+ping, `tailscale ping` returns a pong, and the tailnet shows it online. The
+journal records nothing at all: the previous boot's `ssh` log simply ends, with
+no error, no restart, no crash.
+
+**It was the SD card needing to be reseated**, after the board was disturbed
+fitting a case.
+
+The mechanism fits exactly, and it explains the silence. sshd forks a child per
+connection and reads its host keys from disk each time, so it fails the moment
+the card stops answering. Daemons already resident - tailscaled, the kernel
+network stack - keep running from RAM and look perfectly healthy. And the
+journal cannot record the cause, because writing the journal needs the same
+card.
+
+That last part is the trap. An empty log is not evidence that nothing went
+wrong; on a storage fault it is exactly what you should expect. This hypothesis
+was raised early, then dropped *because* the post-mortem showed no card errors -
+which was the one piece of evidence that could not have appeared either way.
+
+Before theorising about sshd, reseat the card.
+
+## Check what is actually supplying the board before reading the flags
+
+A Pi 4 wants roughly 1.2 A through the boot surge. A PC USB port gives 500 mA
+(USB 2.0) or 900 mA (USB 3.0), so a unit moved to one after a charger dies will
+show live under-voltage at idle:
+
+```
+throttled=0x50005    bit0 under-voltage NOW, bit2 throttled NOW,
+                     bits 16/18 the sticky record since boot
+```
+
+Sticky bits clear only on reboot, so a clean `0x0` after a reboot is the test
+that a replacement supply is actually adequate.
+
+Worth stating plainly because two failures here had unrelated, mundane causes -
+a card that needed reseating and a charger that died - while the fan happened to
+be connected for both. That was enough to suggest a pattern that did not exist.
+Two coincidences are not a trial.
