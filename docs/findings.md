@@ -638,9 +638,19 @@ The reboot restores the working state precisely because the netplan files are
 still there at that point. Delete them only after the profile has carried a
 session.
 
-`NetworkManager.service` dropped from 9.549s to 5.729s afterwards, and
-`network-online.target` moved 1.7s earlier. Total boot did not move (35.0s ->
-35.4s) - but that unit was under-volting on an inadequate supply at the time,
-its kernel phase alone varied by 1.5s between the two runs, and a throttled
-board makes every boot measurement noise. Worth repeating on clean power before
-believing any of it.
+`NetworkManager.service` dropped from 9.549s to 5.729s afterwards, but total
+boot did not move (35.0s -> 35.4s), so the change looked worthless.
+
+It was not. That measurement was taken while the unit was under-volting on an
+inadequate supply; a throttled board makes every boot timing noise. Repeated on
+a proper charger:
+
+| | supply | total | NetworkManager |
+|---|---|---|---|
+| after cloud-init fix | good | 35.048s | 9.549s |
+| after netplan cleanup | browning out | 35.356s | 5.729s |
+| after netplan cleanup | **good** | **28.869s** | **3.687s** |
+
+The cleanup was worth about 6 seconds, and NetworkManager fell to roughly what
+the hand-built unit does (3.0s). Fix the power before drawing any conclusion
+from a boot chart - the brownout hid a real improvement completely.
