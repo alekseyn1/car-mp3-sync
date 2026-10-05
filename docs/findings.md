@@ -793,3 +793,45 @@ monitor attached while discarding the recovery console. Leave both alone.
 Note `dtparam=audio=off` does not unload `snd_bcm2835` - the modules still
 appear in `lsmod`, they just have no device to attach to. Do not read the module
 list as proof the setting failed.
+
+## Never feed a heredoc through a password-piping sudo helper
+
+Scripting a Pi over SSH with password sudo invites this helper:
+
+```sh
+s() { echo 'hunter2' | sudo -S -p '' "$@"; }
+```
+
+It works for ordinary commands and silently corrupts anything that reads stdin:
+
+```sh
+s tee /usr/local/sbin/thing <<'EOF'     # writes an EMPTY file
+s bash -c "cat >> /boot/firmware/config.txt" <<'EOF'   # writes THE PASSWORD
+```
+
+The heredoc is attached to the function call, but the body replaces stdin with
+the `echo` pipe, so the heredoc is discarded. What the consuming command then
+reads depends on whether sudo needed the password at all: with credentials
+already cached from an earlier call, sudo does not touch stdin, and `cat` or
+`tee` happily consumes the password line and writes it into the target file.
+
+That is how a plaintext password reached `config.txt` on a FAT boot partition -
+the fifth time this pattern leaked it to disk in this project, including once
+immediately after the trap had been written down.
+
+**The rule: no redirection, no heredoc, nothing that reads stdin, through that
+helper.** Build the file as the unprivileged user first, then move it with a
+command that does not read stdin:
+
+```sh
+cat > /home/pi/thing.new <<'EOF'      # plain user, no sudo
+...
+EOF
+s install -m755 -o root -g root /home/pi/thing.new /usr/local/sbin/thing
+s cp /home/pi/config.new /boot/firmware/config.txt
+```
+
+`install` and `cp` take their input as a path, so there is no stdin to poison.
+Afterwards, actually grep the target for the password rather than assuming -
+every occurrence here was found that way, and an empty file looks like success
+until something tries to execute it (`Exec format error`).
