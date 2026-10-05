@@ -932,3 +932,47 @@ The original build notes said to measure the port with an inline meter before
 mounting anything. That was the right instruction and skipping it cost far more
 time than the meter would have. **Measure the supply first; tune the software
 only once you know the budget is real.**
+
+## It works in the car, and the fan was probably the thing
+
+First confirmed enumeration by the head unit, from the only source that tells
+the truth - the kernel, not `/sys/class/udc/*/state`:
+
+```
+[ 8.864] dwc2 fe980000.usb: new device is high-speed
+[ 8.996] dwc2 fe980000.usb: new address 39
+Startup finished in 3.668s (kernel) + 20.013s (userspace) = 23.681s
+reaching the NAS over lan ... rsync rc=0 ... flipped ... sync done
+```
+
+The stereo sees the drive about nine seconds after power-on, and the whole boot
+finishes in 24 seconds. Against the previous car run on the same port:
+
+| | before | after |
+|---|---|---|
+| failed boots | several, ending on `Undervoltage detected!` at 3-4s | none |
+| boot when it survived | 2min 53s | **23.7s** |
+| host enumeration | never observed | **new address 39** |
+| undervoltage per boot | up to 18 | 1-2 |
+
+**The likely cause is the fan, not the clock tuning.** It previously ran
+permanently - the UART held GPIO14 high, so it drew current whenever the board
+was powered. It now sits at `cur_state=0` below 60C. On a port that
+current-limits near 500mA, removing a continuous ~150mA returns roughly 30% of
+the entire budget. By contrast `initial_turbo=0` was measured to change nothing,
+and the LED and Bluetooth settings were already in place during the runs that
+failed.
+
+That attribution is not controlled - several things changed between the two car
+runs - but the magnitudes are not close. A fan sized for a board is not a
+rounding error when the supply is half what the board wants.
+
+The general lesson, having spent far longer on `config.txt` than on this: on a
+current-limited supply, look for a *load you can remove* before looking for a
+clock you can lower. Peripherals that run unconditionally are worth more than
+every firmware knob combined.
+
+Not yet exercised in the field: the once-per-boot beep suppression. Every boot
+on this run reached the NAS (`unreachable events: 0`), so the car never left
+WiFi range and the three-beep path never ran. It is verified by test, not by
+driving.
