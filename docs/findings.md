@@ -721,3 +721,75 @@ The fix is the one already in the notes: power the Pi from the **GPIO 5V and GND
 pins** off a cigarette-lighter charger, and keep the USB-C cable for data only
 with its **VBUS wire cut**. Two supplies without cutting VBUS would push 5V back
 into the stereo's port.
+
+## disable-bt is why the fan pin was taken, and how to get it back
+
+The case fan's control line goes to GPIO14. On one unit the kernel could drive
+it; on the other the pin read `a0 pn | hi` - ALT0, TXD0 - and the fan ran
+permanently off the UART's idle-high level. Same wiring, same image, different
+pin state. The cause is one line of `config.txt`:
+
+```
+dtoverlay=disable-bt
+```
+
+`disable-bt` frees the Bluetooth radio **by moving the PL011 UART onto
+GPIO14/15**. `console=serial0,115200` in `cmdline.txt` then resolves to that
+UART and claims the pin. Without `disable-bt`, `serial0` is the mini-UART, which
+stays off unless `enable_uart=1`, so GPIO14 is free and `gpio-fan` can have it.
+
+So the two settings are coupled, and the fix is to drop the serial console
+rather than the Bluetooth saving:
+
+```sh
+sed -i 's/console=serial0,115200 //' /boot/firmware/cmdline.txt
+```
+
+`console=tty1` stays, so HDMI remains the recovery path - which is the one the
+notes rely on anyway. Nothing is lost in practice: with a fan plugged onto pin 8
+the serial console was unusable regardless.
+
+Check `pinctrl get 14` per unit. Two boards wired identically can sit in
+different pin states, and the wiring tells you nothing about which.
+
+### Verify the trip by lowering it, not by loading the CPU
+
+To prove the thermostat engages, move the trip point below the current
+temperature and watch:
+
+```sh
+cat /sys/class/thermal/thermal_zone0/trip_point_0_temp   # 60000
+echo 41000 > /sys/class/thermal/thermal_zone0/trip_point_0_temp
+# ... cooling_device0/cur_state flips to 1, temperature falls ...
+echo 60000 > /sys/class/thermal/thermal_zone0/trip_point_0_temp
+```
+
+Measured: trip to 41C at 44C gave `fan=1` and 45.2C -> 38.9C in 90s. On the
+other unit, trip to 56C at 59C gave `fan=1` and 60.8C -> 52.5C in 60s.
+
+The earlier attempt forced the trip with four cores at 100% instead. That
+collapsed the board, cost `/data` an ext4 recovery and set the under-voltage
+flags - on a unit powered from a marginal supply, which is the whole point of
+the exercise. Writing one sysfs value proves the same thing and costs nothing.
+
+## What is actually worth cutting for power
+
+Peak current during boot is what a car USB port fails to supply, so that is
+where to spend effort - average idle draw is almost irrelevant by comparison.
+
+| Change | Why |
+|---|---|
+| `initial_turbo=0` | **The big one.** Default is 60, so the Pi runs at full clock for the first 60s - exactly the window a weak port browns out in. Costs about 2s of boot. |
+| `arm_boost=0` | Stops a Pi 4 clocking to 1.8GHz. |
+| `dtoverlay=disable-bt` | Radio never initialises. Beats `rfkill block`, which blocks the interface but still brings the hardware up. |
+| LED `dtparam`s off | `act_led_trigger=none`, `pwr_led_activelow=off` and friends. Small but free. |
+| `dtparam=audio=off`, `camera_auto_detect=0` | Nothing here uses either; stops probing them. |
+| `ip link set eth0 down` | Already handled by `carmp3-net-trim`. |
+
+What is *not* worth it: `vcgencmd display_power 0` does nothing under
+`vc4-kms-v3d`, and blanking HDMI via `video=HDMI-A-1:d` saves nothing with no
+monitor attached while discarding the recovery console. Leave both alone.
+
+Note `dtparam=audio=off` does not unload `snd_bcm2835` - the modules still
+appear in `lsmod`, they just have no device to attach to. Do not read the module
+list as proof the setting failed.
