@@ -676,3 +676,48 @@ The wider point: a periodic retry and an audible notification are fine
 separately and awful together. Anything on a five-minute timer needs to decide
 whether each run is worth announcing, and the answer is almost always "only when
 the state changed".
+
+## The car USB port browns out a Pi 4, and this is what it looks like
+
+The build notes said to measure the port first. Here is the failure when you do
+not. Symptom from the driver's seat: the stereo shows the drive appearing and
+disappearing a few times, and it takes minutes to settle.
+
+What the journal shows. Two boots ended with this as their *final* line, having
+never reached `multi-user.target`:
+
+```
+kernel: hwmon hwmon1: Undervoltage detected!
+```
+
+They lasted 3 and 4 seconds. The boots that did survive took **2min 53s**
+(3.2s kernel + 2min 50s userspace) against 28s at home, because an under-volted
+Pi 4 throttles to 600MHz and every service crawls. One boot logged 18
+undervoltage events.
+
+So each reset is one mount/unmount cycle at the head unit, and the long boot is
+the gap before it settles. Nothing is wrong with the software.
+
+**Reading car logs needs boot IDs, not timestamps.** There is no RTC, and in the
+car there is no WiFi, so NTP never runs and every car boot is stamped with the
+same baked-in time - here `Sep 17 17:11:50`, from when the image was built.
+Twelve days of driving all share one timestamp. Use `journalctl --list-boots`
+and `-b -N`; sorting by time tells you nothing. Within a single boot the clock
+does advance normally, so durations are still trustworthy.
+
+An always-on fan makes it worse. On the hand-built unit GPIO14 reads `a0 pn | hi`
+- ALT0, TXD0 - so the UART holds the pin high and the fan runs whenever the
+board is powered, adding its draw to the boot surge that is already failing.
+That unit has no `gpio-fan` overlay, and cannot have one on GPIO14 without
+taking the pin from the UART. Check `pinctrl get 14` per unit; two boards wired
+the same way can land in different pin states.
+
+What survived: zero I/O or EXT4 errors across every boot, both images fsck-clean
+with the pinned serial, 358 files. The pre-write `fsck.vfat -a` repaired an image
+six times - which is exactly the job it was added for, and the reason repeated
+hard resets did not cost a rebuild.
+
+The fix is the one already in the notes: power the Pi from the **GPIO 5V and GND
+pins** off a cigarette-lighter charger, and keep the USB-C cable for data only
+with its **VBUS wire cut**. Two supplies without cutting VBUS would push 5V back
+into the stereo's port.
