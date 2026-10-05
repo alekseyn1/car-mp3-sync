@@ -654,3 +654,25 @@ a proper charger:
 The cleanup was worth about 6 seconds, and NetworkManager fell to roughly what
 the hand-built unit does (3.0s). Fix the power before drawing any conclusion
 from a boot chart - the brownout hid a real improvement completely.
+
+## Announce a bad outcome once, not every five minutes
+
+The retry timer runs every five minutes until a sync succeeds, which is right -
+it is what catches a phone hotspot coming up mid-drive. But every attempt beeped
+its outcome, so a car that is simply away from home played the three-beep
+"no network" pattern for the entire journey.
+
+Beep rules that work in a car:
+
+- a success (`synced`, `current`) always sounds, and clears the marker
+- a failure or missing network sounds **once per boot**, tracked in
+  `/run/carmp3-beeped`, so the next engine start speaks up again
+- a *different* bad outcome still sounds once, so `nowifi` turning into
+  `failed` is not silently swallowed
+
+`/run` is tmpfs, so the marker expires with the boot without any cleanup.
+
+The wider point: a periodic retry and an audible notification are fine
+separately and awful together. Anything on a five-minute timer needs to decide
+whether each run is worth announcing, and the answer is almost always "only when
+the state changed".

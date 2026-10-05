@@ -42,7 +42,26 @@ mkdir -p "$(dirname "$LOG")" "$STATE" "$NASMNT" "$SYNCMNT"
 # keep the log from growing without bound on a read-only-root appliance
 [ -f "$LOG" ] && [ "$(stat -c%s "$LOG")" -gt 1048576 ] && tail -c 262144 "$LOG" > "$LOG.tmp" && mv "$LOG.tmp" "$LOG"
 log() { echo "$(date '+%F %T') $*" | tee -a "$LOG"; }
-beep() { [ -x "$BEEP" ] && "$BEEP" "$1" 2>/dev/null; }
+# A success is always announced. A failure or a missing network is announced
+# once per boot: the retry timer fires every five minutes for the whole drive,
+# so without this the car fills with the same three beeps over and over when it
+# is simply not at home. The marker lives in /run, so the next engine start
+# speaks up again, and a success clears it so a later failure is still heard.
+BEEPED=/run/carmp3-beeped
+beep() {
+  [ -x "$BEEP" ] || return 0
+  case "$1" in
+    synced|current)
+      rm -f "$BEEPED" ;;
+    *)
+      [ "$(cat "$BEEPED" 2>/dev/null)" = "$1" ] && {
+        log "beep $1 suppressed (already announced this boot)"
+        return 0
+      }
+      echo "$1" > "$BEEPED" ;;
+  esac
+  "$BEEP" "$1" 2>/dev/null
+}
 
 exec 9>/run/carmp3-sync.lock
 flock -n 9 || { log "another sync is already running, skipping"; exit 0; }
