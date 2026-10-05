@@ -835,3 +835,43 @@ s cp /home/pi/config.new /boot/firmware/config.txt
 Afterwards, actually grep the target for the password rather than assuming -
 every occurrence here was found that way, and an empty file looks like success
 until something tries to execute it (`Exec format error`).
+
+## --list-boots lies when the clock jumps, and it looks like failed boots
+
+With no RTC, a boot starts at whatever timestamp is baked into the image and
+jumps forward when NTP lands. That is enough to make `journalctl --list-boots`
+invent entries. Observed during a reboot-cycle test:
+
+```
+-3  Sep 17 17:12:14 → Sep 17 17:12:16     "a 2-second boot"
+-4  Sep 17 17:12:13 → Oct 05 12:33:52     "an 18-day boot"
+```
+
+Neither is a boot. Both are **per-user systemd session records** - an SSH login
+and logout - which the clock jump splits off under their own apparent boot:
+
+```
+systemd[980]: Created slice app.slice - User Application Slice
+systemd[980]: Reached target exit.target - Exit the Session.
+(sd-pam)[982]: pam_unix(systemd-user:session): session closed
+```
+
+They read convincingly as crashed boots: short, no `Reached target multi-user`,
+ending on a shutdown-ish line. One of these was briefly taken as proof that a
+unit needed two attempts to boot on a weak supply. It proved nothing.
+
+**How to tell a real boot from one of these:**
+
+- a real boot has **kernel lines**; a session record has none
+- a real boot has `systemd[1]`; these have `systemd[<high pid>]`
+- check the line count - a full boot here is ~1300 lines, a session record ~60-130
+- `Reached target multi-user` is the honest completion test
+
+So the earlier advice to read car logs by boot ID rather than timestamp is right
+but insufficient: also confirm each boot has kernel lines before believing it
+existed. The car's genuinely failed boots were identifiable precisely because
+their last line was a *kernel* message, `hwmon hwmon1: Undervoltage detected!`.
+
+Related trap in the same output: `grep 'Startup finished in'` picks up the
+per-user manager too, which reports its own sub-second figure. Taking the last
+match yields "376ms" for a 22-second boot.
