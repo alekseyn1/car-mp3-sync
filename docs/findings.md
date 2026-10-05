@@ -875,3 +875,60 @@ their last line was a *kernel* message, `hwmon hwmon1: Undervoltage detected!`.
 Related trap in the same output: `grep 'Startup finished in'` picks up the
 per-user manager too, which reports its own sub-second figure. Taking the last
 match yields "376ms" for a 22-second boot.
+
+## initial_turbo=0 does nothing measurable, and here is the controlled test
+
+`initial_turbo` defaults to 60, meaning the board runs at full clock for the
+first 60 seconds - which looks exactly like the window a weak supply fails in.
+Setting it to 0 is an obvious candidate for reducing the boot surge. It was
+recommended here on that reasoning alone, then actually measured:
+
+| | undervoltage events per boot | mean boot |
+|---|---|---|
+| `initial_turbo=0` | 2, 2, 1, 2, 2 → **1.8** | **22.91s** |
+| `initial_turbo=60` | 2, 1, 2, 3, 3 → **2.2** | **21.99s** |
+
+Five cycles each, same unit, same supply, same session. The ranges overlap
+(1-2 against 1-3), so at n=5 that difference is noise. It buys nothing and costs
+about a second of boot.
+
+Method notes, because a sloppier version of this produced a believable fake
+result first time:
+
+- **Sample at a fixed uptime.** Undervoltage events accumulate, so a sample
+  taken whenever SSH happens to answer measures how long you waited.
+  The runs above each waited for `/proc/uptime` to reach 90s.
+- **Count from `journalctl -b 0`, not `dmesg`.** The ring buffer rotates.
+- **Re-measure the control arm with the new method** rather than reusing older
+  numbers gathered a different way. Comparing a careful arm against a sloppy one
+  is worse than not measuring.
+
+## Measure the supply before tuning the software
+
+An inline USB meter on the unit, after ten reboots:
+
+```
+4.878 V    0.543 A    2.650 W
+```
+
+Two conclusions, and the second one invalidates a lot of effort.
+
+**The BOM estimates were right.** They predicted ~540 mA and ~2.7 W idle for a
+Pi 4 and were marked `[verify]` for a year. Measured: 0.543 A, 2.650 W.
+
+**The supply is current-limited at roughly 500 mA** - the USB 2.0 figure, and
+0.543 A is that plus tolerance. A Pi 4 wants about 1.2 A through its boot surge,
+so the board is being handed well under half of what it needs, and its *idle*
+draw sits at the cap. That is why it throttles to 600MHz and trips undervoltage
+two or three times on every boot. 4.878 V is below even nominal 5.0 V, against
+the 5.1 V an official supply provides precisely to leave headroom for drop.
+
+No `config.txt` setting can help with that, which is exactly why both arms of
+the test above came out the same. The power diet, the clock limits and the LED
+tweaks were all rearranging consumption inside a budget less than half the size
+it needed to be.
+
+The original build notes said to measure the port with an inline meter before
+mounting anything. That was the right instruction and skipping it cost far more
+time than the meter would have. **Measure the supply first; tune the software
+only once you know the budget is real.**
