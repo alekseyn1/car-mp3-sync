@@ -976,3 +976,53 @@ Not yet exercised in the field: the once-per-boot beep suppression. Every boot
 on this run reached the NAS (`unreachable events: 0`), so the car never left
 WiFi range and the three-beep path never ran. It is verified by test, not by
 driving.
+
+## What a Pi 4 actually draws, measured
+
+A logging USB meter on a known-good supply, across repeated boot cycles with
+the fan pinned off so it could not contaminate the trace:
+
+| | measured |
+|---|---|
+| supply voltage | **5.21 V, flat** - no sag even through peaks |
+| idle | **0.50 - 0.56 A** |
+| sustained boot plateau | ~0.75 - 0.80 A |
+| peak | **~0.93 - 1.0 A** |
+
+The BOM guessed ~540 mA idle, ~2.7 W, and ~1.2 A boot peak, all flagged
+`[verify]`. Idle and power were right on. The peak estimate was conservative:
+the real figure is nearer 1.0 A.
+
+That settles what the weak port was doing. It capped at **0.543 A** - about half
+what the board wants at peak, and *at* its idle draw. Hence 600 MHz throttling
+and undervoltage on every boot, with no software setting able to help.
+
+It also sizes the alternatives honestly. A supply for the GPIO 5 V feed needs
+~1 A for this board with margin, not 3 A; and the Zero 2 W's ~0.5 A peak is
+genuinely inside a 500 mA port where the Pi 4 is roughly double over.
+
+### initial_turbo: confirmed to do nothing, on a good supply too
+
+The earlier null result came from a current-limited supply, where the cap
+dominates and the claim was therefore narrower than it sounded. Repeated on a
+5.21 V supply that never sags, three boots per arm, fan pinned off:
+
+| | arm A (`initial_turbo=0`) | arm B (`=60`) |
+|---|---|---|
+| idle baseline | ~0.50-0.56 A | ~0.50-0.55 A |
+| peak spikes | ~0.93 A | ~0.93-1.0 A |
+| sustained high plateau | none past ~10s | **none** |
+
+The decisive observation is an absence. `initial_turbo=60` holds the ARM at
+1500 MHz for a full minute - confirmed live, `arm=1500MHz` at 28-39s of uptime -
+so if it mattered there would be a 60-second elevated plateau in arm B. There is
+not one. Clock only costs current when there is work to do, and boot load drives
+the governor up within seconds anyway.
+
+The setting has been removed from both units. It cost about a second of boot for
+no measurable return.
+
+**A caveat on the integrated figures:** the meter's capacity counter was not
+reset between arms, so derived averages (~533 mA against ~587 mA) cover windows
+containing different numbers of boots. That difference is an artifact of where
+the snapshots fell, not a result. The curve shapes are the evidence.
