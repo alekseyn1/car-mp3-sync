@@ -1026,3 +1026,42 @@ no measurable return.
 reset between arms, so derived averages (~533 mA against ~587 mA) cover windows
 containing different numbers of boots. That difference is an artifact of where
 the snapshots fell, not a result. The curve shapes are the evidence.
+
+## The gadget enumerates with VBUS cut - no diode needed
+
+Powering a Pi 4 from the GPIO 5 V pins while keeping the USB-C cable for data
+requires removing VBUS from that cable, or the Pi backfeeds 5 V into the
+stereo's port. The open question was whether dwc2 would still present the gadget
+with no VBUS at the connector - if it relies on VBUS to detect a session, the
+head unit would simply never see a drive.
+
+**It enumerates.** Confirmed independently on both units:
+
+```
+mp3drive-ca    [10.863] dwc2: new device is high-speed
+               [10.899] dwc2: new address 27
+mp3drive-sfax  [17.557] dwc2: new device is high-speed
+               [17.593] dwc2: new address 21
+```
+
+The likely reason is that the Pi's VBUS sense sits on the same 5 V rail the GPIO
+pins feed, so powering from GPIO makes the controller see a session regardless
+of the connector. That was the prediction; this is the measurement. The fallback
+plan - a Schottky diode in the VBUS line, anode at the host, passing the host's
+5 V in for detection while blocking the Pi's rail from flowing back - is not
+needed.
+
+Two things to keep straight when wiring this:
+
+- **A charge-only cable is the exact opposite of what is wanted.** Those cut
+  the *data* lines and keep VBUS. This needs data intact and VBUS removed.
+- **The GPIO 5 V pins bypass every protection on the board** - no polyfuse, no
+  reverse-polarity protection, none of the USB-C input conditioning. Wrong
+  polarity kills it instantly with nothing to blow first.
+
+Sizing, now that the draw is measured rather than guessed: ~1.0 A peak means a
+common 2.1 A car charger has 2x headroom, and the wire only ever carries what
+the board draws, not what the charger can supply. Watch voltage drop rather than
+ampacity - 30 AWG is 0.34 ohm/m per conductor and current flows out and back, so
+20 cm costs 135 mV at 1 A against a budget of roughly 500 mV. Short splices are
+fine; runs want 24 AWG.
